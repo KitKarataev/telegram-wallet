@@ -8,28 +8,38 @@
     <style>
         body { background-color: #0f172a; color: #e2e8f0; font-family: -apple-system, sans-serif; padding: 15px; margin: 0; }
         
-        /* Заголовок с выбором валюты */
-        .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
-        .title { font-size: 20px; font-weight: bold; color: #fff; }
-        select { background: #1e293b; color: white; border: 1px solid #334155; padding: 5px 10px; border-radius: 8px; font-size: 14px; outline: none; }
+        .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; }
+        .title { font-size: 18px; font-weight: bold; color: #fff; }
+        select { background: #1e293b; color: white; border: 1px solid #334155; padding: 5px; border-radius: 8px; outline: none; }
 
-        /* Баланс */
-        .balance-card { display: flex; justify-content: space-between; margin-bottom: 20px; gap: 10px; }
-        .card { flex: 1; background: #1e293b; padding: 10px; border-radius: 12px; text-align: center; }
-        .card h3 { margin: 0 0 5px 0; font-size: 11px; color: #94a3b8; text-transform: uppercase; }
-        .card div { font-size: 14px; font-weight: bold; }
+        /* Главный Баланс (Остаток) */
+        .wallet-card { background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%); padding: 20px; border-radius: 16px; text-align: center; margin-bottom: 20px; box-shadow: 0 4px 15px rgba(37, 99, 235, 0.3); }
+        .wallet-label { color: rgba(255,255,255,0.8); font-size: 14px; margin-bottom: 5px; }
+        .wallet-amount { font-size: 32px; font-weight: bold; color: white; }
+
+        /* Фильтры */
+        .filters { display: flex; background: #1e293b; padding: 4px; border-radius: 12px; margin-bottom: 15px; }
+        .filter-btn { flex: 1; text-align: center; padding: 8px 0; font-size: 13px; color: #94a3b8; cursor: pointer; border-radius: 8px; transition: 0.2s; }
+        .filter-btn.active { background: #334155; color: white; font-weight: bold; }
+
+        /* Карточки периода */
+        .period-stats { display: flex; gap: 10px; margin-bottom: 20px; }
+        .stat-card { flex: 1; background: #1e293b; padding: 12px; border-radius: 12px; }
+        .stat-label { font-size: 12px; color: #94a3b8; margin-bottom: 4px; }
+        .stat-val { font-size: 16px; font-weight: bold; }
         .green { color: #10b981; } .red { color: #ef4444; }
 
         /* Ввод */
         .input-box { background: #1e293b; padding: 15px; border-radius: 16px; margin-bottom: 20px; }
-        .type-switch { display: flex; background: #334155; border-radius: 10px; padding: 4px; margin-bottom: 10px; }
-        .type-option { flex: 1; text-align: center; padding: 8px; border-radius: 8px; cursor: pointer; font-size: 14px; transition: 0.2s; color: #94a3b8; }
-        .type-option.active { background: #3b82f6; color: white; font-weight: bold; }
-        .type-option.active-red { background: #ef4444; color: white; font-weight: bold; }
-
-        input { width: 100%; padding: 12px; border-radius: 10px; border: 1px solid #334155; background: #0f172a; color: white; font-size: 16px; box-sizing: border-box; outline: none; margin-bottom: 10px;}
-        button.main-btn { width: 100%; padding: 12px; background: #3b82f6; color: white; border: none; border-radius: 10px; font-weight: bold; cursor: pointer; }
+        .type-switch { display: flex; gap: 10px; margin-bottom: 10px; }
+        .type-btn { flex: 1; padding: 8px; text-align: center; background: #334155; border-radius: 8px; font-size: 14px; cursor: pointer; color: #94a3b8; }
+        .type-btn.active-exp { background: #ef4444; color: white; }
+        .type-btn.active-inc { background: #10b981; color: white; }
         
+        .date-input { width: 100%; padding: 10px; background: #0f172a; border: 1px solid #334155; color: white; border-radius: 8px; margin-bottom: 10px; font-family: inherit; }
+        input[type="text"] { width: 100%; padding: 12px; border-radius: 10px; border: 1px solid #334155; background: #0f172a; color: white; font-size: 16px; box-sizing: border-box; outline: none; margin-bottom: 10px;}
+        button.main-btn { width: 100%; padding: 12px; background: #3b82f6; color: white; border: none; border-radius: 10px; font-weight: bold; cursor: pointer; }
+
         .history-item { display: flex; justify-content: space-between; padding: 12px 0; border-bottom: 1px solid #334155; align-items: center;}
         .del-btn { background: none; border: none; color: #64748b; font-size: 18px; cursor: pointer; padding-left: 10px; }
         .chart-container { height: 200px; margin-bottom: 20px; }
@@ -37,88 +47,105 @@
 </head>
 <body>
     <div class="header">
-        <div class="title">Мои Финансы</div>
+        <div class="title">Wallet AI</div>
         <select id="currency-select" onchange="changeCurrency()">
-            <option value="RUB">RUB (₽)</option>
-            <option value="USD">USD ($)</option>
-            <option value="EUR">EUR (€)</option>
+            <option value="RUB">RUB</option>
+            <option value="USD">USD</option>
+            <option value="EUR">EUR</option>
         </select>
     </div>
 
-    <div class="balance-card">
-        <div class="card">
-            <h3>Доход</h3>
-            <div id="inc-val" class="green">0</div>
-        </div>
-        <div class="card">
-            <h3>Расход</h3>
-            <div id="exp-val" class="red">0</div>
-        </div>
-        <div class="card">
-            <h3>Баланс</h3>
-            <div id="bal-val">0</div>
-        </div>
+    <div class="wallet-card">
+        <div class="wallet-label">Общий баланс</div>
+        <div class="wallet-amount" id="total-balance">...</div>
     </div>
 
-    <div class="input-box">
-        <div class="type-switch">
-            <div id="btn-exp" class="type-option active-red" onclick="setType('expense')">Расход</div>
-            <div id="btn-inc" class="type-option" onclick="setType('income')">Доход</div>
+    <div class="filters">
+        <div class="filter-btn" onclick="setFilter('day', this)">День</div>
+        <div class="filter-btn" onclick="setFilter('week', this)">Неделя</div>
+        <div class="filter-btn active" onclick="setFilter('month', this)">Месяц</div>
+        <div class="filter-btn" onclick="setFilter('all', this)">Все</div>
+    </div>
+
+    <div class="period-stats">
+        <div class="stat-card">
+            <div class="stat-label">Доход (период)</div>
+            <div id="inc-val" class="stat-val green">0</div>
         </div>
-        <input type="text" id="expense" placeholder="Сумма и описание...">
-        <button class="main-btn" onclick="sendData()">ДОБАВИТЬ</button>
+        <div class="stat-card">
+            <div class="stat-label">Расход (период)</div>
+            <div id="exp-val" class="stat-val red">0</div>
+        </div>
     </div>
 
     <div class="chart-container">
         <canvas id="myChart"></canvas>
     </div>
 
-    <h3 style="color:#94a3b8; font-size:14px">История</h3>
+    <div class="input-box">
+        <div class="type-switch">
+            <div id="btn-exp" class="type-btn active-exp" onclick="setType('expense')">Расход</div>
+            <div id="btn-inc" class="type-btn" onclick="setType('income')">Доход</div>
+        </div>
+        <input type="date" id="date-picker" class="date-input">
+        
+        <input type="text" id="expense" placeholder="Сумма и описание...">
+        <button class="main-btn" onclick="sendData()">ЗАПИСАТЬ</button>
+    </div>
+
+    <h3 style="color:#94a3b8; font-size:14px">История (за период)</h3>
     <div id="history"></div>
 
     <script>
         const tg = window.Telegram.WebApp;
         tg.expand();
         const user_id = tg.initDataUnsafe?.user?.id || 12345;
-        let currentType = 'expense';
-        let myChart = null;
         
-        // Словарик символов
-        const SYMBOLS = {"RUB": "₽", "USD": "$", "EUR": "€"};
-        let currentCurrency = "RUB";
-
-        // Функция смены валюты
-        async function changeCurrency() {
-            const select = document.getElementById('currency-select');
-            currentCurrency = select.value;
-            
-            // Сохраняем выбор в базу
-            await fetch('/api/settings', {
-                method: 'POST',
-                body: JSON.stringify({ user_id: user_id, currency: currentCurrency })
-            });
-            
-            // Перезагружаем данные
-            loadStats();
-        }
+        let currentType = 'expense';
+        let currentPeriod = 'month'; // По умолчанию месяц
+        let myChart = null;
+        let SYMBOLS = {"RUB": "₽", "USD": "$", "EUR": "€"};
+        
+        // Устанавливаем сегодняшнюю дату в календарь
+        document.getElementById('date-picker').valueAsDate = new Date();
 
         function setType(type) {
             currentType = type;
-            document.getElementById('btn-exp').className = `type-option ${type === 'expense' ? 'active-red' : ''}`;
-            document.getElementById('btn-inc').className = `type-option ${type === 'income' ? 'active' : ''}`;
-            const btn = document.querySelector('.main-btn');
-            btn.style.background = type === 'income' ? '#10b981' : '#ef4444';
+            document.getElementById('btn-exp').className = `type-btn ${type === 'expense' ? 'active-exp' : ''}`;
+            document.getElementById('btn-inc').className = `type-btn ${type === 'income' ? 'active-inc' : ''}`;
+        }
+
+        function setFilter(period, elem) {
+            currentPeriod = period;
+            // Убираем активный класс у всех кнопок
+            document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+            elem.classList.add('active');
+            loadStats();
+        }
+
+        async function changeCurrency() {
+            const select = document.getElementById('currency-select');
+            await fetch('/api/settings', {
+                method: 'POST',
+                body: JSON.stringify({ user_id: user_id, currency: select.value })
+            });
+            loadStats();
         }
 
         async function sendData() {
             const input = document.getElementById('expense');
+            const dateInput = document.getElementById('date-picker');
+            
             if(!input.value) return;
             tg.HapticFeedback.impactOccurred('light');
 
             await fetch('/api/index', {
                 method: 'POST',
                 body: JSON.stringify({ 
-                    text: input.value, user_id: user_id, type: currentType 
+                    text: input.value, 
+                    user_id: user_id, 
+                    type: currentType,
+                    date: dateInput.value // Шлем выбранную дату
                 })
             });
             input.value = "";
@@ -132,21 +159,24 @@
         }
 
         async function loadStats() {
-            const res = await fetch(`/api/stats?user_id=${user_id}`);
+            // Запрашиваем статистику с фильтром периода
+            const res = await fetch(`/api/stats?user_id=${user_id}&period=${currentPeriod}`);
             const data = await res.json();
 
-            // Устанавливаем валюту в селекте (которую вернул сервер)
-            currentCurrency = data.currency;
-            document.getElementById('currency-select').value = currentCurrency;
-            const sym = SYMBOLS[currentCurrency] || '';
+            // Валюта
+            const sym = SYMBOLS[data.currency] || '';
+            document.getElementById('currency-select').value = data.currency;
 
-            document.getElementById('inc-val').innerText = `+${data.balance.income} ${sym}`;
-            document.getElementById('exp-val').innerText = `-${data.balance.expense} ${sym}`;
-            document.getElementById('bal-val').innerText = `${data.balance.total} ${sym}`;
+            // 1. Общий баланс (синяя карточка)
+            document.getElementById('total-balance').innerText = `${data.total_balance} ${sym}`;
 
+            // 2. Статистика периода
+            document.getElementById('inc-val').innerText = `+${data.period.income} ${sym}`;
+            document.getElementById('exp-val').innerText = `-${data.period.expense} ${sym}`;
+
+            // 3. График
             const ctx = document.getElementById('myChart');
             if (myChart) myChart.destroy();
-            
             const chartData = data.chart.data.length ? data.chart.data : [1];
             const chartColors = data.chart.data.length ? ['#ef4444', '#f59e0b', '#3b82f6', '#8b5cf6'] : ['#334155'];
 
@@ -156,21 +186,25 @@
                     labels: data.chart.labels,
                     datasets: [{ data: chartData, backgroundColor: chartColors, borderWidth: 0 }]
                 },
-                options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, cutout: '70%' }
+                options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, cutout: '75%' }
             });
 
+            // 4. История
             const list = document.getElementById('history');
             list.innerHTML = "";
             data.history.forEach(item => {
                 const isInc = item.type === 'income';
                 const sign = isInc ? '+' : '-';
                 const color = isInc ? '#10b981' : '#e2e8f0';
-                
+                // Форматируем дату красиво (DD.MM)
+                const dateObj = new Date(item.created_at);
+                const dateStr = dateObj.toLocaleDateString('ru-RU', {day:'numeric', month:'numeric'});
+
                 list.innerHTML += `
                     <div class="history-item">
                         <div>
                             <div style="font-weight:bold">${item.description}</div>
-                            <div style="font-size:12px; color:#64748b">${item.category}</div>
+                            <div style="font-size:12px; color:#64748b">${dateStr} • ${item.category}</div>
                         </div>
                         <div style="display:flex; align-items:center">
                             <span style="color:${color}; font-weight:bold; margin-right:10px">${sign}${item.amount} ${sym}</span>
