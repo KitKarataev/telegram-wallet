@@ -2,63 +2,79 @@
 <html>
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
-        body { background-color: #0f172a; color: #e2e8f0; font-family: sans-serif; padding: 15px; margin: 0; padding-bottom: 80px; }
+        body { background-color: #0f172a; color: #e2e8f0; font-family: -apple-system, BlinkMacSystemFont, sans-serif; padding: 15px; margin: 0; padding-bottom: 90px; user-select: none; }
         
-        /* Табы (Меню) */
-        .tabs { position: fixed; bottom: 0; left: 0; width: 100%; background: #1e293b; display: flex; padding: 10px 0; border-top: 1px solid #334155; z-index: 100; }
-        .tab-item { flex: 1; text-align: center; color: #64748b; cursor: pointer; font-size: 12px; }
-        .tab-item.active { color: #3b82f6; font-weight: bold; }
-        .tab-icon { font-size: 20px; display: block; margin-bottom: 4px; }
+        /* Свайп-элементы (Новое!) */
+        .swipe-wrapper { position: relative; margin-bottom: 10px; border-radius: 16px; overflow: hidden; background-color: #ef4444; /* Красный фон снизу */ }
+        
+        .delete-layer { 
+            position: absolute; top: 0; right: 0; bottom: 0; width: 80px; 
+            display: flex; align-items: center; justify-content: center; 
+            color: white; font-size: 24px; cursor: pointer; z-index: 1;
+        }
 
-        /* Экраны */
+        .history-item { 
+            position: relative; 
+            background: #1e293b; 
+            padding: 15px; 
+            display: flex; justify-content: space-between; align-items: center;
+            z-index: 10; 
+            transition: transform 0.2s ease-out; /* Плавность */
+        }
+        
+        /* Когда свайпнули, сдвигаем влево */
+        .history-item.swiped { transform: translateX(-80px); }
+
+        /* Остальные стили (сохранены) */
+        .tabs { position: fixed; bottom: 0; left: 0; width: 100%; background: #1e293b; display: flex; padding: 12px 0; border-top: 1px solid #334155; z-index: 100; padding-bottom: env(safe-area-inset-bottom); }
+        .tab-item { flex: 1; text-align: center; color: #64748b; cursor: pointer; font-size: 11px; }
+        .tab-item.active { color: #3b82f6; font-weight: bold; }
+        .tab-icon { font-size: 22px; display: block; margin-bottom: 2px; }
+
         .screen { display: none; }
         .screen.active { display: block; }
 
-        /* Общие стили */
         .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; }
-        .title { font-size: 18px; font-weight: bold; color: #fff; }
-        select { background: #1e293b; color: white; border: 1px solid #334155; padding: 5px; border-radius: 8px; outline: none; }
-        
-        /* Кошелек */
-        .wallet-card { background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%); padding: 20px; border-radius: 16px; text-align: center; margin-bottom: 20px; }
-        .wallet-amount { font-size: 32px; font-weight: bold; color: white; }
-        
-        .filters { display: flex; background: #1e293b; padding: 4px; border-radius: 12px; margin-bottom: 15px; }
-        .filter-btn { flex: 1; text-align: center; padding: 8px 0; font-size: 13px; color: #94a3b8; border-radius: 8px; cursor: pointer; }
+        .title { font-size: 20px; font-weight: 800; color: #fff; letter-spacing: -0.5px; }
+        select { background: #1e293b; color: white; border: 1px solid #334155; padding: 6px 12px; border-radius: 10px; outline: none; font-weight: 500;}
+
+        .wallet-card { background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%); padding: 25px; border-radius: 20px; text-align: center; margin-bottom: 20px; box-shadow: 0 10px 25px -5px rgba(37, 99, 235, 0.4); }
+        .wallet-amount { font-size: 36px; font-weight: 800; color: white; margin-top: 5px; }
+
+        .filters { display: flex; background: #1e293b; padding: 4px; border-radius: 14px; margin-bottom: 20px; }
+        .filter-btn { flex: 1; text-align: center; padding: 8px 0; font-size: 13px; color: #94a3b8; border-radius: 10px; cursor: pointer; font-weight: 500; }
         .filter-btn.active { background: #334155; color: white; }
-        
-        .period-stats { display: flex; gap: 10px; margin-bottom: 20px; }
-        .stat-card { flex: 1; background: #1e293b; padding: 12px; border-radius: 12px; }
-        .stat-val { font-size: 16px; font-weight: bold; }
-        .green { color: #10b981; } .red { color: #ef4444; }
 
-        /* Форма ввода (Восстановленная) */
-        .input-box { background: #1e293b; padding: 15px; border-radius: 16px; margin-bottom: 20px; }
-        
-        .type-switch { display: flex; gap: 10px; margin-bottom: 10px; }
-        .type-btn { flex: 1; padding: 10px; text-align: center; background: #334155; border-radius: 8px; font-size: 14px; cursor: pointer; color: #94a3b8; transition: 0.2s; }
-        .type-btn.active-exp { background: #ef4444; color: white; font-weight: bold; }
-        .type-btn.active-inc { background: #10b981; color: white; font-weight: bold; }
+        .period-stats { display: flex; gap: 12px; margin-bottom: 25px; }
+        .stat-card { flex: 1; background: #1e293b; padding: 15px; border-radius: 16px; }
+        .stat-val { font-size: 18px; font-weight: bold; margin-top: 4px; }
+        .green { color: #34d399; } .red { color: #f87171; }
 
-        input, select.full { width: 100%; padding: 12px; border-radius: 10px; border: 1px solid #334155; background: #0f172a; color: white; font-size: 16px; box-sizing: border-box; margin-bottom: 10px; outline: none;}
-        
-        button.main-btn { width: 100%; padding: 12px; background: #ef4444; color: white; border: none; border-radius: 10px; font-weight: bold; cursor: pointer; transition: 0.2s; }
-        
-        /* Подписки */
-        .sub-item { background: #1e293b; border-radius: 12px; padding: 15px; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center; }
-        .sub-del { color: #ef4444; font-size: 20px; padding-left: 15px; cursor: pointer; }
+        .input-box { background: #1e293b; padding: 20px; border-radius: 20px; margin-bottom: 25px; }
+        .type-switch { display: flex; gap: 10px; margin-bottom: 15px; }
+        .type-btn { flex: 1; padding: 12px; text-align: center; background: #334155; border-radius: 12px; font-size: 14px; cursor: pointer; color: #94a3b8; transition: 0.2s; font-weight: 600; }
+        .type-btn.active-exp { background: #ef4444; color: white; }
+        .type-btn.active-inc { background: #10b981; color: white; }
 
+        input, select.full { width: 100%; padding: 14px; border-radius: 12px; border: 1px solid #334155; background: #0f172a; color: white; font-size: 16px; box-sizing: border-box; margin-bottom: 12px; outline: none; transition: 0.2s; }
+        input:focus { border-color: #3b82f6; }
+        
+        button.main-btn { width: 100%; padding: 14px; background: #ef4444; color: white; border: none; border-radius: 12px; font-weight: 700; cursor: pointer; font-size: 16px; transition: transform 0.1s; }
+        button.main-btn:active { transform: scale(0.98); }
+
+        .sub-item { background: #1e293b; border-radius: 16px; padding: 15px; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center; border: 1px solid #334155; }
+        .export-btn { margin-top: 30px; text-align: center; padding: 15px; border: 1px dashed #334155; border-radius: 12px; color: #64748b; font-size: 14px; cursor: pointer; }
     </style>
 </head>
 <body>
     
     <div id="screen-wallet" class="screen active">
         <div class="header">
-            <div class="title">Wallet AI</div>
+            <div class="title">Мои Финансы</div>
             <select id="currency-select" onchange="changeCurrency()">
                 <option value="RUB">RUB</option>
                 <option value="USD">USD</option>
@@ -67,7 +83,7 @@
         </div>
 
         <div class="wallet-card">
-            <div style="font-size:14px; color:rgba(255,255,255,0.8)">Общий баланс</div>
+            <div style="font-size:13px; opacity:0.8; text-transform:uppercase; letter-spacing:1px">Общий баланс</div>
             <div class="wallet-amount" id="total-balance">...</div>
         </div>
 
@@ -75,6 +91,7 @@
             <div class="filter-btn" onclick="setFilter('day', this)">День</div>
             <div class="filter-btn" onclick="setFilter('week', this)">Неделя</div>
             <div class="filter-btn active" onclick="setFilter('month', this)">Месяц</div>
+            <div class="filter-btn" onclick="setFilter('all', this)">Все</div>
         </div>
 
         <div class="period-stats">
@@ -93,42 +110,34 @@
                 <div id="btn-exp" class="type-btn active-exp" onclick="setType('expense')">Расход</div>
                 <div id="btn-inc" class="type-btn" onclick="setType('income')">Доход</div>
             </div>
-            
             <input type="date" id="date-picker">
             <input type="text" id="expense" placeholder="Сумма и описание...">
-            
             <button class="main-btn" id="submit-btn" onclick="sendData()">ПОТРАТИЛ</button>
         </div>
         
-        <h3 style="color:#94a3b8; font-size:14px">Последние операции</h3>
-        <div id="history"></div>
-        <h3 style="color:#94a3b8; font-size:14px">Последние операции</h3>
+        <h3 style="color:#94a3b8; font-size:14px; margin-left:5px">История операций</h3>
+        <div style="color:#64748b; font-size:12px; margin-left:5px; margin-bottom:10px">Смахни влево, чтобы удалить ⬅️</div>
+        
         <div id="history"></div>
 
-        <div style="margin-top: 20px; text-align: center;">
-            <button onclick="downloadReport()" style="background: transparent; border: 1px solid #334155; color: #94a3b8; padding: 10px 20px; border-radius: 8px; cursor: pointer; font-size: 14px;">
-                📥 Скачать отчет (Excel/CSV)
-            </button>
+        <div class="export-btn" onclick="downloadReport()">
+            📥 Скачать отчет (Excel/CSV)
         </div>
-
-    </div> 
     </div>
 
     <div id="screen-subs" class="screen">
-        <div class="header">
-            <div class="title">Мои Подписки</div>
-        </div>
+        <div class="header"><div class="title">Подписки</div></div>
 
         <div class="input-box">
             <input type="text" id="sub-name" placeholder="Название (Netflix)">
             <input type="number" id="sub-amount" placeholder="Сумма (19)">
-            <div style="color:#94a3b8; font-size:12px; margin-bottom:5px">Дата следующей оплаты:</div>
+            <div style="color:#94a3b8; font-size:12px; margin-bottom:8px">Дата следующей оплаты:</div>
             <input type="date" id="sub-date">
             <select id="sub-period" class="full">
                 <option value="month">Каждый месяц</option>
                 <option value="year">Каждый год</option>
             </select>
-            <button class="main-btn" style="background:#3b82f6" onclick="addSub()">ДОБАВИТЬ ПОДПИСКУ</button>
+            <button class="main-btn" style="background:#3b82f6" onclick="addSub()">ДОБАВИТЬ</button>
         </div>
 
         <div id="subs-list"></div>
@@ -150,22 +159,47 @@
         let SYMBOLS = {"RUB": "₽", "USD": "$", "EUR": "€"};
         let currentCurrency = "RUB";
         let currentPeriod = 'month';
-        
-        // Переменные для формы ввода
         let currentType = 'expense';
 
-        // Инициализация дат (сегодня)
         document.getElementById('sub-date').valueAsDate = new Date();
         document.getElementById('date-picker').valueAsDate = new Date();
 
-        // 1. Управление Типом (Расход/Доход)
+        // --- ЛОГИКА СВАЙПА (Новая) ---
+        let touchStartX = 0;
+        let touchEndX = 0;
+
+        function addSwipeLogic(element) {
+            element.addEventListener('touchstart', e => {
+                touchStartX = e.changedTouches[0].screenX;
+            });
+
+            element.addEventListener('touchend', e => {
+                touchEndX = e.changedTouches[0].screenX;
+                handleSwipe(element);
+            });
+        }
+
+        function handleSwipe(element) {
+            const swipeDistance = touchStartX - touchEndX;
+            // Если свайпнули влево больше чем на 50px
+            if (swipeDistance > 50) {
+                // Закрываем все остальные открытые
+                document.querySelectorAll('.history-item.swiped').forEach(el => el.classList.remove('swiped'));
+                // Открываем текущий
+                element.classList.add('swiped');
+                tg.HapticFeedback.selectionChanged();
+            }
+            // Если свайпнули вправо - закрываем
+            if (swipeDistance < -50) {
+                element.classList.remove('swiped');
+            }
+        }
+        // -----------------------------
+
         function setType(type) {
             currentType = type;
-            // Меняем стили кнопок
             document.getElementById('btn-exp').className = `type-btn ${type === 'expense' ? 'active-exp' : ''}`;
             document.getElementById('btn-inc').className = `type-btn ${type === 'income' ? 'active-inc' : ''}`;
-            
-            // Меняем главную кнопку
             const btn = document.getElementById('submit-btn');
             if (type === 'income') {
                 btn.style.background = '#10b981';
@@ -191,23 +225,43 @@
             document.getElementById('currency-select').value = data.currency;
             const sym = SYMBOLS[data.currency] || '';
 
-            // КОШЕЛЕК
             document.getElementById('total-balance').innerText = `${data.total_balance} ${sym}`;
             document.getElementById('inc-val').innerText = `+${data.period.income}`;
             document.getElementById('exp-val').innerText = `-${data.period.expense}`;
             
+            // Рендер Истории со Свайпами
             const list = document.getElementById('history');
             list.innerHTML = "";
+            
             data.history.forEach(item => {
                 const color = item.type === 'income' ? '#10b981' : '#e2e8f0';
                 const sign = item.type === 'income' ? '+' : '-';
-                list.innerHTML += `<div style="padding:10px 0; border-bottom:1px solid #334155; display:flex; justify-content:space-between">
-                    <span>${item.description}</span>
-                    <span style="color:${color}; font-weight:bold">${sign}${item.amount} ${sym}</span>
-                </div>`;
+                const dateObj = new Date(item.created_at);
+                const dateStr = dateObj.toLocaleDateString('ru-RU', {day:'numeric', month:'short'});
+
+                // Создаем элементы через JS, чтобы навесить события
+                const wrapper = document.createElement('div');
+                wrapper.className = 'swipe-wrapper';
+
+                wrapper.innerHTML = `
+                    <div class="delete-layer" onclick="deleteItem(${item.id})">🗑</div>
+                    <div class="history-item">
+                        <div>
+                            <div style="font-weight:600; font-size:15px">${item.description}</div>
+                            <div style="font-size:12px; color:#64748b; margin-top:2px">${dateStr} • ${item.category}</div>
+                        </div>
+                        <div style="color:${color}; font-weight:700; font-size:16px">${sign}${item.amount} ${sym}</div>
+                    </div>
+                `;
+                
+                // Находим верхний слой и добавляем свайп-логику
+                const itemDiv = wrapper.querySelector('.history-item');
+                addSwipeLogic(itemDiv);
+                
+                list.appendChild(wrapper);
             });
 
-            // ПОДПИСКИ
+            // Рендер Подписок
             const subList = document.getElementById('subs-list');
             subList.innerHTML = "";
             if (data.subscriptions) {
@@ -222,10 +276,9 @@
                             </div>
                             <div style="display:flex; align-items:center">
                                 <div style="font-weight:bold; margin-right:10px">${sub.amount} ${sub.currency}</div>
-                                <div class="sub-del" onclick="delSub(${sub.id})">×</div>
+                                <div onclick="delSub(${sub.id})" style="color:#ef4444; font-size:24px; cursor:pointer">×</div>
                             </div>
-                        </div>
-                    `;
+                        </div>`;
                 });
             }
         }
@@ -233,19 +286,9 @@
         async function sendData() {
             const input = document.getElementById('expense');
             const dateInput = document.getElementById('date-picker');
-            
             if(!input.value) return;
             tg.HapticFeedback.impactOccurred('light');
-
-            await fetch('/api/index', {
-                method: 'POST',
-                body: JSON.stringify({ 
-                    text: input.value, 
-                    user_id: user_id,
-                    type: currentType, // Шлем тип (expense/income)
-                    date: dateInput.value // Шлем дату
-                })
-            });
+            await fetch('/api/index', { method: 'POST', body: JSON.stringify({ text: input.value, user_id: user_id, type: currentType, date: dateInput.value }) });
             input.value = "";
             loadStats();
         }
@@ -269,37 +312,33 @@
             const date = document.getElementById('sub-date').value;
             const period = document.getElementById('sub-period').value;
             if(!name || !amount) return;
-
-            await fetch('/api/subs', {
-                method: 'POST',
-                body: JSON.stringify({ action: 'add', user_id: user_id, name: name, amount: amount, currency: currentCurrency, date: date, period: period })
-            });
-            document.getElementById('sub-name').value = "";
-            document.getElementById('sub-amount').value = "";
+            await fetch('/api/subs', { method: 'POST', body: JSON.stringify({ action: 'add', user_id: user_id, name: name, amount: amount, currency: currentCurrency, date: date, period: period }) });
+            document.getElementById('sub-name').value = ""; document.getElementById('sub-amount').value = "";
             tg.HapticFeedback.notificationOccurred('success');
             loadStats();
         }
 
         async function delSub(id) {
-            if(!confirm("Удалить?")) return;
+            if(!confirm("Удалить подписку?")) return;
             await fetch('/api/subs', { method: 'POST', body: JSON.stringify({ action: 'delete', id: id }) });
             loadStats();
         }
 
-        loadStats();
-        javascript
-        function downloadReport() {
-            // Телеграм умеет открывать ссылки на скачивание
-            const link = `/api/export?user_id=${user_id}`;
-            // В WebApp лучше открывать системным методом
-            if (tg.openLink) {
-                // Пытаемся открыть во внешнем браузере, чтобы скачивание точно сработало
-                tg.openLink(`https://${window.location.hostname}${link}`);
-            } else {
-                // Фолбек для обычного браузера
-                window.location.href = link;
-            }
+        // Функция удаления траты (вызывается из красного слоя)
+        async function deleteItem(id) {
+            if(!confirm("Удалить эту запись?")) return;
+            tg.HapticFeedback.notificationOccurred('error');
+            await fetch('/api/delete', { method: 'POST', body: JSON.stringify({ id: id }) });
+            loadStats();
         }
+
+        async function downloadReport() {
+            const link = `/api/export?user_id=${user_id}`;
+            if (tg.openLink) { tg.openLink(`https://${window.location.hostname}${link}`); } 
+            else { window.location.href = link; }
+        }
+
+        loadStats();
     </script>
 </body>
 </html>
