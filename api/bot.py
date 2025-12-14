@@ -13,6 +13,9 @@ def send_telegram(chat_id, text):
     payload = {"chat_id": chat_id, "text": text}
     requests.post(url, json=payload)
 
+# Словарик символов
+SYMBOLS = {"RUB": "₽", "USD": "$", "EUR": "€"}
+
 class handler(BaseHTTPRequestHandler):
     def do_POST(self):
         try:
@@ -20,49 +23,54 @@ class handler(BaseHTTPRequestHandler):
             body = json.loads(self.rfile.read(length))
             
             if 'message' not in body:
-                self.send_response(200); self.end_headers(); self.wfile.write(b'OK')
-                return
+                self.send_response(200); self.end_headers(); self.wfile.write(b'OK'); return
 
             message = body['message']
             chat_id = message['chat']['id']
             text = message.get('text', '').lower()
 
-            # 1. Ищем сумму
+            supabase = create_client(SUPA_URL, SUPA_KEY)
+
+            # 1. Узнаем валюту юзера
+            user_settings = supabase.table("user_settings").select("currency").eq("user_id", chat_id).execute()
+            currency_code = "RUB"
+            if user_settings.data:
+                currency_code = user_settings.data[0]['currency']
+            
+            symbol = SYMBOLS.get(currency_code, "₽")
+
+            # 2. Логика разбора (как раньше)
             amount = ''.join(filter(str.isdigit, text))
             if not amount:
-                send_telegram(chat_id, "Где деньги? Напиши сумму, например: 'Зп 50000'")
+                send_telegram(chat_id, f"Напиши сумму (Валюта: {currency_code})")
             else:
                 amount = int(amount)
                 category = "Разное"
-                record_type = "expense" # По умолчанию - расход
+                record_type = "expense"
 
-                # 2. Логика Доходов (Ключевые слова)
                 income_words = ["зарплата", "зп", "аванс", "приход", "перевод", "кэшбэк", "доход"]
                 if any(w in text for w in income_words):
                     record_type = "income"
                     category = "Доход"
-                
-                # 3. Логика Расходов (если это не доход)
                 elif record_type == "expense":
                     if any(w in text for w in ["еда", "мак", "продукты", "обед"]): category = "Еда"
                     elif any(w in text for w in ["такси", "бензин", "метро"]): category = "Транспорт"
                     elif any(w in text for w in ["дом", "жкх", "аренда"]): category = "Дом"
                     elif any(w in text for w in ["аптека", "врач"]): category = "Здоровье"
+                    elif any(w in text for w in ["кафе", "бар", "кино"]): category = "Развлечения"
 
-                # 4. Пишем в базу
-                supabase = create_client(SUPA_URL, SUPA_KEY)
                 data = {
-                    "user_id": chat_id,
-                    "amount": amount,
-                    "category": category,
-                    "description": message.get('text', 'Запись'),
+                    "user_id": chat_id, 
+                    "amount": amount, 
+                    "category": category, 
+                    "description": message.get('text', 'Запись'), 
                     "type": record_type
                 }
                 supabase.table("expenses").insert(data).execute()
 
-                # 5. Отвечаем красиво
                 icon = "💰" if record_type == "income" else "💸"
-                send_telegram(chat_id, f"{icon} {category}: {amount}₽")
+                # Используем правильный символ
+                send_telegram(chat_id, f"{icon} {category}: {amount}{symbol}")
 
         except Exception as e:
             print(f"Error: {e}")
