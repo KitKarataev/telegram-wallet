@@ -4,89 +4,132 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script> <style>
-        body { background-color: #111; color: white; font-family: sans-serif; display: flex; flex-direction: column; align-items: center; padding: 20px; box-sizing: border-box; }
-        input { padding: 15px; border-radius: 12px; border: 1px solid #333; background: #222; color: white; width: 100%; font-size: 16px; margin-bottom: 10px; outline: none; }
-        button { padding: 15px; background-color: #3b82f6; color: white; border: none; border-radius: 12px; font-size: 16px; width: 100%; cursor: pointer; font-weight: bold; }
-        button:active { opacity: 0.8; }
-        .chart-container { position: relative; height: 300px; width: 100%; margin-top: 30px; }
-        h1 { margin-bottom: 20px; font-size: 24px; }
-        .status { margin-top: 10px; font-size: 14px; color: #888; }
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body { background-color: #0f172a; color: #e2e8f0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; padding: 20px; margin: 0; }
+        
+        /* Стиль ввода */
+        .input-group { display: flex; gap: 10px; margin-bottom: 20px; }
+        input { flex: 1; padding: 12px; border-radius: 12px; border: 1px solid #334155; background: #1e293b; color: white; font-size: 16px; outline: none; }
+        button { padding: 12px 20px; background-color: #3b82f6; color: white; border: none; border-radius: 12px; font-weight: 600; cursor: pointer; }
+        button:active { transform: scale(0.98); }
+
+        /* График */
+        .chart-box { background: #1e293b; border-radius: 16px; padding: 15px; margin-bottom: 20px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1); }
+        .chart-container { position: relative; height: 250px; width: 100%; }
+
+        /* Список истории */
+        h2 { font-size: 18px; margin-bottom: 10px; color: #94a3b8; }
+        .history-list { list-style: none; padding: 0; margin: 0; }
+        .history-item { display: flex; justify-content: space-between; padding: 12px 0; border-bottom: 1px solid #334155; }
+        .history-item:last-child { border-bottom: none; }
+        .cat-badge { font-size: 12px; background: #334155; padding: 4px 8px; border-radius: 6px; margin-right: 8px; color: #cbd5e1; }
+        .amount { font-weight: bold; color: #3b82f6; }
     </style>
 </head>
 <body>
-    <h1>💸 Мои Расходы</h1>
-    
-    <div style="width: 100%;">
-        <input type="text" id="expense" placeholder="Например: Пицца 800">
-        <button onclick="sendData()">ДОБАВИТЬ ТРАТУ</button>
-        <p id="status" class="status"></p>
+    <div class="input-group">
+        <input type="text" id="expense" placeholder="Такси 500">
+        <button onclick="sendData()">OK</button>
     </div>
 
-    <div class="chart-container">
-        <canvas id="myChart"></canvas>
+    <div class="chart-box">
+        <div class="chart-container">
+            <canvas id="myChart"></canvas>
+        </div>
     </div>
+
+    <h2>Последние операции</h2>
+    <ul id="history" class="history-list">
+        <li style="text-align:center; color: #666;">Загрузка...</li>
+    </ul>
 
     <script>
         const tg = window.Telegram.WebApp;
         tg.expand();
-        
-        // Переменная для графика
-        let myChart = null;
+        // Настраиваем цвета для Телеграма (темная/светлая тема)
+        if (tg.colorScheme === 'light') {
+            document.body.style.backgroundColor = '#f8fafc';
+            document.body.style.color = '#0f172a';
+        }
 
-        // 1. Функция отправки (как раньше)
+        let myChart = null;
+        // Берем ID юзера или используем тестовый, если открыто в браузере
+        const user_id = tg.initDataUnsafe?.user?.id || 12345;
+
         async function sendData() {
             const input = document.getElementById('expense');
-            const status = document.getElementById('status');
-            
             if(!input.value) return;
 
-            status.innerText = "Думаю...";
-            const user_id = tg.initDataUnsafe?.user?.id || 12345;
+            // Вибрация телефона (Haptic Feedback) - фишка Телеграма
+            tg.HapticFeedback.impactOccurred('medium');
 
             await fetch('/api/index', {
                 method: 'POST',
                 body: JSON.stringify({ text: input.value, user_id: user_id })
             });
 
-            status.innerText = "✅ Улетело в базу!";
             input.value = "";
-            loadStats(); // Сразу обновляем график
+            loadStats(); 
         }
 
-        // 2. Функция загрузки графика
         async function loadStats() {
-            const ctx = document.getElementById('myChart');
-            
-            // Запрашиваем данные у нашего нового Python-скрипта
-            const res = await fetch('/api/stats');
+            // ВАЖНО: Теперь мы передаем user_id в ссылке
+            const res = await fetch(`/api/stats?user_id=${user_id}`);
             const data = await res.json();
 
-            // Если график уже есть - удаляем старый
+            // 1. Рисуем График
+            const ctx = document.getElementById('myChart');
             if (myChart) myChart.destroy();
+            
+            // Если данных нет, рисуем пустой круг
+            const chartData = data.chart.data.length ? data.chart.data : [1];
+            const chartLabels = data.chart.labels.length ? data.chart.labels : ['Нет данных'];
+            const chartColors = data.chart.data.length 
+                ? ['#3b82f6', '#ef4444', '#10b981', '#f59e0b', '#8b5cf6'] 
+                : ['#334155'];
 
-            // Рисуем новый
             myChart = new Chart(ctx, {
-                type: 'doughnut', // Тип: Пончик
+                type: 'doughnut',
                 data: {
-                    labels: data.labels,
+                    labels: chartLabels,
                     datasets: [{
-                        data: data.data,
-                        backgroundColor: ['#3b82f6', '#ef4444', '#10b981', '#f59e0b', '#8b5cf6'],
-                        borderWidth: 0
+                        data: chartData,
+                        backgroundColor: chartColors,
+                        borderWidth: 0,
+                        hoverOffset: 4
                     }]
                 },
                 options: {
                     responsive: true,
                     maintainAspectRatio: false,
-                    plugins: {
-                        legend: { position: 'bottom', labels: { color: 'white' } }
-                    }
+                    plugins: { legend: { display: false } },
+                    cutout: '70%'
                 }
             });
+
+            // 2. Рисуем Историю
+            const list = document.getElementById('history');
+            list.innerHTML = ""; // Очистить старое
+
+            if (data.history.length === 0) {
+                list.innerHTML = "<li class='history-item' style='justify-content:center'>Пока пусто</li>";
+            } else {
+                data.history.forEach(item => {
+                    const li = document.createElement('li');
+                    li.className = 'history-item';
+                    li.innerHTML = `
+                        <div>
+                            <span class="cat-badge">${item.category}</span>
+                            <span>${item.description}</span>
+                        </div>
+                        <span class="amount">${item.amount} ₽</span>
+                    `;
+                    list.appendChild(li);
+                });
+            }
         }
 
-        // Запускаем загрузку графика при старте
         loadStats();
     </script>
 </body>
