@@ -2,6 +2,7 @@ from http.server import BaseHTTPRequestHandler
 import json
 from supabase import create_client
 import os
+from datetime import datetime
 
 class handler(BaseHTTPRequestHandler):
     def do_POST(self):
@@ -13,19 +14,19 @@ class handler(BaseHTTPRequestHandler):
         supabase = create_client(url, key)
 
         text = body.get('text', '').lower()
-        forced_type = body.get('type') # Получаем тип от кнопки (если есть)
+        forced_type = body.get('type')
+        # Получаем дату от фронтенда, или берем сейчас, если не прислали
+        custom_date = body.get('date') 
         
         amount = ''.join(filter(str.isdigit, text))
         
         category = "Разное"
         record_type = "expense"
 
-        # Если тип принудительно указан с фронта (нажали кнопку "Доход")
         if forced_type == "income":
             record_type = "income"
             category = "Доход"
         else:
-            # Иначе пытаемся угадать по тексту
             if any(w in text for w in ["зарплата", "зп", "аванс"]): 
                 record_type = "income"
                 category = "Доход"
@@ -40,6 +41,10 @@ class handler(BaseHTTPRequestHandler):
                 "description": text,
                 "type": record_type
             }
+            # Если пользователь выбрал дату, добавляем её (Supabase примет формат YYYY-MM-DD)
+            if custom_date:
+                data["created_at"] = custom_date
+
             supabase.table("expenses").insert(data).execute()
             msg = "Сохранено!"
         else:
