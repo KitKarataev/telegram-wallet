@@ -13,4 +13,4 @@ jobs:
         run: |
           curl -X GET \
           -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
-          "https://telegram-wallet-git-main-kits-projects-770eae33.vercel.app"
+          "https://telegram-wallet-wine.vercel.app/"
