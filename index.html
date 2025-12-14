@@ -102,6 +102,16 @@
         
         <h3 style="color:#94a3b8; font-size:14px">Последние операции</h3>
         <div id="history"></div>
+        <h3 style="color:#94a3b8; font-size:14px">Последние операции</h3>
+        <div id="history"></div>
+
+        <div style="margin-top: 20px; text-align: center;">
+            <button onclick="downloadReport()" style="background: transparent; border: 1px solid #334155; color: #94a3b8; padding: 10px 20px; border-radius: 8px; cursor: pointer; font-size: 14px;">
+                📥 Скачать отчет (Excel/CSV)
+            </button>
+        </div>
+
+    </div> 
     </div>
 
     <div id="screen-subs" class="screen">
@@ -277,6 +287,19 @@
         }
 
         loadStats();
+        javascript
+        function downloadReport() {
+            // Телеграм умеет открывать ссылки на скачивание
+            const link = `/api/export?user_id=${user_id}`;
+            // В WebApp лучше открывать системным методом
+            if (tg.openLink) {
+                // Пытаемся открыть во внешнем браузере, чтобы скачивание точно сработало
+                tg.openLink(`https://${window.location.hostname}${link}`);
+            } else {
+                // Фолбек для обычного браузера
+                window.location.href = link;
+            }
+        }
     </script>
 </body>
 </html>
