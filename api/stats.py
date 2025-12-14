@@ -14,29 +14,37 @@ class handler(BaseHTTPRequestHandler):
         supabase = create_client(url, key)
 
         if not user_id:
-            data = []
-        else:
-            # Берем данные
-            response = supabase.table("expenses").select("*").eq("user_id", user_id).order("id", desc=True).execute()
-            data = response.data
+            self.send_response(200)
+            self.end_headers()
+            self.wfile.write(json.dumps({}).encode('utf-8'))
+            return
 
-        # Считаем
+        # 1. Получаем валюту пользователя
+        settings_res = supabase.table("user_settings").select("currency").eq("user_id", user_id).execute()
+        currency = "RUB" # По умолчанию
+        if settings_res.data:
+            currency = settings_res.data[0]['currency']
+
+        # 2. Получаем список трат
+        response = supabase.table("expenses").select("*").eq("user_id", user_id).order("id", desc=True).execute()
+        data = response.data
+
+        # 3. Считаем
         stats = {}
         total_income = 0
         total_expense = 0
 
         for item in data:
             amt = item['amount']
-            # Если это доход
             if item.get('type') == 'income':
                 total_income += amt
-            # Если расход (или старая запись без типа)
             else:
                 total_expense += amt
                 cat = item['category']
                 stats[cat] = stats.get(cat, 0) + amt
 
         response_data = {
+            "currency": currency, # <-- ОТПРАВЛЯЕМ ВАЛЮТУ НА ФРОНТ
             "chart": {
                 "labels": list(stats.keys()),
                 "data": list(stats.values())
@@ -46,7 +54,7 @@ class handler(BaseHTTPRequestHandler):
                 "expense": total_expense,
                 "total": total_income - total_expense
             },
-            "history": data[:10] # 10 последних
+            "history": data[:15]
         }
 
         self.send_response(200)
