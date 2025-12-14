@@ -18,28 +18,38 @@
         .screen { display: none; }
         .screen.active { display: block; }
 
-        /* Стили для кошелька (старые) */
+        /* Общие стили */
         .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; }
         .title { font-size: 18px; font-weight: bold; color: #fff; }
         select { background: #1e293b; color: white; border: 1px solid #334155; padding: 5px; border-radius: 8px; outline: none; }
+        
+        /* Кошелек */
         .wallet-card { background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%); padding: 20px; border-radius: 16px; text-align: center; margin-bottom: 20px; }
         .wallet-amount { font-size: 32px; font-weight: bold; color: white; }
+        
         .filters { display: flex; background: #1e293b; padding: 4px; border-radius: 12px; margin-bottom: 15px; }
-        .filter-btn { flex: 1; text-align: center; padding: 8px 0; font-size: 13px; color: #94a3b8; border-radius: 8px; }
+        .filter-btn { flex: 1; text-align: center; padding: 8px 0; font-size: 13px; color: #94a3b8; border-radius: 8px; cursor: pointer; }
         .filter-btn.active { background: #334155; color: white; }
+        
         .period-stats { display: flex; gap: 10px; margin-bottom: 20px; }
         .stat-card { flex: 1; background: #1e293b; padding: 12px; border-radius: 12px; }
         .stat-val { font-size: 16px; font-weight: bold; }
         .green { color: #10b981; } .red { color: #ef4444; }
+
+        /* Форма ввода (Восстановленная) */
         .input-box { background: #1e293b; padding: 15px; border-radius: 16px; margin-bottom: 20px; }
-        input, select.full { width: 100%; padding: 12px; border-radius: 10px; border: 1px solid #334155; background: #0f172a; color: white; font-size: 16px; box-sizing: border-box; margin-bottom: 10px; outline: none;}
-        button.main-btn { width: 100%; padding: 12px; background: #3b82f6; color: white; border: none; border-radius: 10px; font-weight: bold; }
         
-        /* Стили Подписок */
+        .type-switch { display: flex; gap: 10px; margin-bottom: 10px; }
+        .type-btn { flex: 1; padding: 10px; text-align: center; background: #334155; border-radius: 8px; font-size: 14px; cursor: pointer; color: #94a3b8; transition: 0.2s; }
+        .type-btn.active-exp { background: #ef4444; color: white; font-weight: bold; }
+        .type-btn.active-inc { background: #10b981; color: white; font-weight: bold; }
+
+        input, select.full { width: 100%; padding: 12px; border-radius: 10px; border: 1px solid #334155; background: #0f172a; color: white; font-size: 16px; box-sizing: border-box; margin-bottom: 10px; outline: none;}
+        
+        button.main-btn { width: 100%; padding: 12px; background: #ef4444; color: white; border: none; border-radius: 10px; font-weight: bold; cursor: pointer; transition: 0.2s; }
+        
+        /* Подписки */
         .sub-item { background: #1e293b; border-radius: 12px; padding: 15px; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center; }
-        .sub-info div:first-child { font-weight: bold; font-size: 16px; margin-bottom: 4px; }
-        .sub-info div:last-child { font-size: 12px; color: #94a3b8; }
-        .sub-price { font-weight: bold; color: #fff; text-align: right; }
         .sub-del { color: #ef4444; font-size: 20px; padding-left: 15px; cursor: pointer; }
 
     </style>
@@ -79,8 +89,15 @@
         </div>
 
         <div class="input-box">
-            <input type="text" id="expense" placeholder="Такси 500">
-            <button class="main-btn" onclick="sendData()">БЫСТРАЯ ЗАПИСЬ</button>
+            <div class="type-switch">
+                <div id="btn-exp" class="type-btn active-exp" onclick="setType('expense')">Расход</div>
+                <div id="btn-inc" class="type-btn" onclick="setType('income')">Доход</div>
+            </div>
+            
+            <input type="date" id="date-picker">
+            <input type="text" id="expense" placeholder="Сумма и описание...">
+            
+            <button class="main-btn" id="submit-btn" onclick="sendData()">ПОТРАТИЛ</button>
         </div>
         
         <h3 style="color:#94a3b8; font-size:14px">Последние операции</h3>
@@ -101,7 +118,7 @@
                 <option value="month">Каждый месяц</option>
                 <option value="year">Каждый год</option>
             </select>
-            <button class="main-btn" onclick="addSub()">ДОБАВИТЬ ПОДПИСКУ</button>
+            <button class="main-btn" style="background:#3b82f6" onclick="addSub()">ДОБАВИТЬ ПОДПИСКУ</button>
         </div>
 
         <div id="subs-list"></div>
@@ -123,20 +140,39 @@
         let SYMBOLS = {"RUB": "₽", "USD": "$", "EUR": "€"};
         let currentCurrency = "RUB";
         let currentPeriod = 'month';
+        
+        // Переменные для формы ввода
+        let currentType = 'expense';
 
-        // Инициализация даты
+        // Инициализация дат (сегодня)
         document.getElementById('sub-date').valueAsDate = new Date();
+        document.getElementById('date-picker').valueAsDate = new Date();
 
-        // Переключение экранов
+        // 1. Управление Типом (Расход/Доход)
+        function setType(type) {
+            currentType = type;
+            // Меняем стили кнопок
+            document.getElementById('btn-exp').className = `type-btn ${type === 'expense' ? 'active-exp' : ''}`;
+            document.getElementById('btn-inc').className = `type-btn ${type === 'income' ? 'active-inc' : ''}`;
+            
+            // Меняем главную кнопку
+            const btn = document.getElementById('submit-btn');
+            if (type === 'income') {
+                btn.style.background = '#10b981';
+                btn.innerText = 'ЗАРАБОТАЛ!';
+            } else {
+                btn.style.background = '#ef4444';
+                btn.innerText = 'ПОТРАТИЛ';
+            }
+        }
+
         function switchTab(screenName, btn) {
             document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
             document.querySelectorAll('.tab-item').forEach(b => b.classList.remove('active'));
-            
             document.getElementById(`screen-${screenName}`).classList.add('active');
             btn.classList.add('active');
         }
 
-        // Основная загрузка
         async function loadStats() {
             const res = await fetch(`/api/stats?user_id=${user_id}&period=${currentPeriod}`);
             const data = await res.json();
@@ -154,30 +190,28 @@
             list.innerHTML = "";
             data.history.forEach(item => {
                 const color = item.type === 'income' ? '#10b981' : '#e2e8f0';
+                const sign = item.type === 'income' ? '+' : '-';
                 list.innerHTML += `<div style="padding:10px 0; border-bottom:1px solid #334155; display:flex; justify-content:space-between">
                     <span>${item.description}</span>
-                    <span style="color:${color}; font-weight:bold">${item.amount} ${sym}</span>
+                    <span style="color:${color}; font-weight:bold">${sign}${item.amount} ${sym}</span>
                 </div>`;
             });
 
             // ПОДПИСКИ
             const subList = document.getElementById('subs-list');
             subList.innerHTML = "";
-            
             if (data.subscriptions) {
                 data.subscriptions.forEach(sub => {
                     const dateObj = new Date(sub.next_date);
                     const dateStr = dateObj.toLocaleDateString('ru-RU');
-                    const periodStr = sub.period === 'month' ? 'Ежемесячно' : 'Ежегодно';
-
                     subList.innerHTML += `
                         <div class="sub-item">
-                            <div class="sub-info">
-                                <div>${sub.name}</div>
-                                <div>Сл. оплата: ${dateStr} (${periodStr})</div>
+                            <div>
+                                <div style="font-weight:bold">${sub.name}</div>
+                                <div style="font-size:12px; color:#94a3b8">Сл. оплата: ${dateStr}</div>
                             </div>
                             <div style="display:flex; align-items:center">
-                                <div class="sub-price">${sub.amount} ${sub.currency}</div>
+                                <div style="font-weight:bold; margin-right:10px">${sub.amount} ${sub.currency}</div>
                                 <div class="sub-del" onclick="delSub(${sub.id})">×</div>
                             </div>
                         </div>
@@ -186,50 +220,50 @@
             }
         }
 
-        // Логика Кошелька
         async function sendData() {
             const input = document.getElementById('expense');
+            const dateInput = document.getElementById('date-picker');
+            
             if(!input.value) return;
             tg.HapticFeedback.impactOccurred('light');
-            await fetch('/api/index', { method: 'POST', body: JSON.stringify({ text: input.value, user_id: user_id }) });
+
+            await fetch('/api/index', {
+                method: 'POST',
+                body: JSON.stringify({ 
+                    text: input.value, 
+                    user_id: user_id,
+                    type: currentType, // Шлем тип (expense/income)
+                    date: dateInput.value // Шлем дату
+                })
+            });
             input.value = "";
             loadStats();
         }
+
         function setFilter(p, el) { 
             currentPeriod = p; 
             document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
             el.classList.add('active'); 
             loadStats(); 
         }
+        
         async function changeCurrency() {
             const s = document.getElementById('currency-select');
             await fetch('/api/settings', { method: 'POST', body: JSON.stringify({ user_id: user_id, currency: s.value }) });
             loadStats();
         }
 
-        // Логика Подписок
         async function addSub() {
             const name = document.getElementById('sub-name').value;
             const amount = document.getElementById('sub-amount').value;
             const date = document.getElementById('sub-date').value;
             const period = document.getElementById('sub-period').value;
-
             if(!name || !amount) return;
 
             await fetch('/api/subs', {
                 method: 'POST',
-                body: JSON.stringify({
-                    action: 'add',
-                    user_id: user_id,
-                    name: name,
-                    amount: amount,
-                    currency: currentCurrency, // Валюта берется из глобальной настройки
-                    date: date,
-                    period: period
-                })
+                body: JSON.stringify({ action: 'add', user_id: user_id, name: name, amount: amount, currency: currentCurrency, date: date, period: period })
             });
-            
-            // Очистка
             document.getElementById('sub-name').value = "";
             document.getElementById('sub-amount').value = "";
             tg.HapticFeedback.notificationOccurred('success');
@@ -237,7 +271,7 @@
         }
 
         async function delSub(id) {
-            if(!confirm("Удалить подписку?")) return;
+            if(!confirm("Удалить?")) return;
             await fetch('/api/subs', { method: 'POST', body: JSON.stringify({ action: 'delete', id: id }) });
             loadStats();
         }
