@@ -1,36 +1,47 @@
 from http.server import BaseHTTPRequestHandler
+from urllib.parse import urlparse, parse_qs
 import json
 from supabase import create_client
 import os
 
 class handler(BaseHTTPRequestHandler):
     def do_GET(self):
-        # 1. Подключаемся к базе
+        # 1. Читаем user_id из ссылки (адреса)
+        query = parse_qs(urlparse(self.path).query)
+        user_id = query.get('user_id', [None])[0]
+
+        # 2. Подключаемся к базе
         url = os.environ.get("SUPABASE_URL")
         key = os.environ.get("SUPABASE_KEY")
         supabase = create_client(url, key)
 
-        # 2. Забираем ВСЕ расходы
-        # (В реальном проекте тут нужен фильтр по user_id, но пока берем всё)
-        response = supabase.table("expenses").select("*").execute()
-        data = response.data
+        if not user_id:
+            data = []
+        else:
+            # 3. Забираем данные ТОЛЬКО этого юзера
+            # Сортируем: новые сверху (desc)
+            response = supabase.table("expenses").select("*").eq("user_id", user_id).order("id", desc=True).execute()
+            data = response.data
 
-        # 3. Считаем сумму по категориям (Python магия)
+        # 4. Считаем сумму для Графика
         stats = {}
         for item in data:
             cat = item['category']
-            amount = item['amount']
-            if cat in stats:
-                stats[cat] += amount
-            else:
-                stats[cat] = amount
+            stats[cat] = stats.get(cat, 0) + item['amount']
 
-        # 4. Готовим данные для графика
-        labels = list(stats.keys())
-        values = list(stats.values())
+        # 5. Готовим Историю (последние 5 штук)
+        last_transactions = data[:5] 
 
-        # 5. Отправляем ответ
+        # 6. Отправляем всё вместе
+        response_data = {
+            "chart": {
+                "labels": list(stats.keys()),
+                "data": list(stats.values())
+            },
+            "history": last_transactions
+        }
+
         self.send_response(200)
         self.send_header('Content-type', 'application/json')
         self.end_headers()
-        self.wfile.write(json.dumps({"labels": labels, "data": values}).encode('utf-8'))
+        self.wfile.write(json.dumps(response_data, default=str).encode('utf-8'))
