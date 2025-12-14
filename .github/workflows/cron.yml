@@ -1,0 +1,16 @@
+name: Daily Subscription Check
+on:
+  schedule:
+    # Запуск каждый день в 10:00 UTC (13:00 МСК)
+    - cron: '0 10 * * *'
+  workflow_dispatch: # Чтобы можно было нажать кнопку ручного запуска
+
+jobs:
+  cron:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call Vercel Cron
+        run: |
+          curl -X GET \
+          -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+          "https://telegram-wallet-git-main-kits-projects-770eae33.vercel.app"
