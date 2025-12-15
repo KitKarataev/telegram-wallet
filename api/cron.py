@@ -1,71 +1,114 @@
 from http.server import BaseHTTPRequestHandler
+from datetime import datetime, timedelta, date
+import calendar
 import os
 import requests
-from supabase import create_client
-from datetime import datetime, timedelta
 
-# Секретный ключ, чтобы кто попало не дергал наш крон
-CRON_SECRET = os.environ.get("CRON_SECRET", "my_secret_123")
-TG_TOKEN = os.environ.get("TELEGRAM_TOKEN")
-SUPA_URL = os.environ.get("SUPABASE_URL")
-SUPA_KEY = os.environ.get("SUPABASE_KEY")
+from api.db import get_supabase
+from api.utils import send_ok, send_error
 
-def send_telegram(chat_id, text):
+
+def _get_env(name: str) -> str:
+    value = os.environ.get(name)
+    if not value:
+        raise RuntimeError(f"Missing required environment variable: {name}")
+    return value
+
+
+# REQUIRED env vars (no defaults!)
+CRON_SECRET = _get_env("CRON_SECRET")
+TG_TOKEN = _get_env("TELEGRAM_TOKEN")
+
+
+def send_telegram(chat_id, text: str) -> None:
     url = f"https://api.telegram.org/bot{TG_TOKEN}/sendMessage"
     payload = {"chat_id": chat_id, "text": text}
-    requests.post(url, json=payload)
+    # Add timeout to prevent hanging
+    requests.post(url, json=payload, timeout=10)
+
+
+def _add_months(d: date, months: int) -> date:
+    """Add months preserving day when possible; clamp to last day of target month."""
+    y = d.year + (d.month - 1 + months) // 12
+    m = (d.month - 1 + months) % 12 + 1
+    last_day = calendar.monthrange(y, m)[1]
+    return date(y, m, min(d.day, last_day))
+
+
+def _next_date(old_date: date, period: str) -> date:
+    p = (period or "").lower()
+    # Support legacy + new values
+    if p in ("month", "monthly"):
+        return _add_months(old_date, 1)
+    if p in ("year", "yearly"):
+        return date(old_date.year + 1, old_date.month, min(old_date.day, calendar.monthrange(old_date.year + 1, old_date.month)[1]))
+    if p in ("week", "weekly"):
+        return old_date + timedelta(days=7)
+    if p in ("day", "daily"):
+        return old_date + timedelta(days=1)
+    # Unknown period -> keep same date (safe fallback)
+    return old_date
+
 
 class handler(BaseHTTPRequestHandler):
     def do_GET(self):
-        # Проверка защиты (Authorization: Bearer my_secret_123)
-        auth_header = self.headers.get('Authorization', '')
-        if f"Bearer {CRON_SECRET}" not in auth_header:
-            self.send_response(401)
-            self.end_headers()
-            self.wfile.write(b'Unauthorized')
+        # Strict auth: "Authorization: Bearer <CRON_SECRET>"
+        auth_header = self.headers.get("Authorization", "")
+        expected = f"Bearer {CRON_SECRET}"
+        if auth_header != expected:
+            send_error(self, 401, "Unauthorized")
             return
 
-        supabase = create_client(SUPA_URL, SUPA_KEY)
+        supabase = get_supabase()
 
-        # 1. Ищем подписки, где дата списания = Сегодня + 3 дня
-        target_date = (datetime.utcnow() + timedelta(days=3)).strftime('%Y-%m-%d')
-        
-        # Получаем список
-        res = supabase.table("subscriptions").select("*").eq("next_date", target_date).execute()
-        subs = res.data
+        # Find subscriptions with next_date = today + 3 days (UTC)
+        target_date = (datetime.utcnow().date() + timedelta(days=3)).strftime("%Y-%m-%d")
 
-        log = []
+        res = (
+            supabase.table("subscriptions")
+            .select("*")
+            .eq("next_date", target_date)
+            .execute()
+        )
+        subs = res.data or []
+
+        processed = 0
+        notified = 0
+        errors = 0
 
         for sub in subs:
-            # 2. Шлем уведомление
-            msg = f"🔔 Напоминание!\nЧерез 3 дня оплата подписки: {sub['name']}\nСумма: {sub['amount']} {sub['currency']}"
-            send_telegram(sub['user_id'], msg)
-            log.append(f"Notified {sub['user_id']} for {sub['name']}")
+            processed += 1
+            try:
+                # 1) Notify
+                name = sub.get("name") or ""
+                amount = sub.get("amount")
+                currency = sub.get("currency") or ""
+                user_id = sub.get("user_id")
 
-            # 3. Переносим дату на следующий период
-            old_date = datetime.strptime(sub['next_date'], '%Y-%m-%d')
-            new_date = old_date
-            
-            if sub['period'] == 'month':
-                # Хитрый способ добавить месяц
-                new_month = old_date.month % 12 + 1
-                new_year = old_date.year + (old_date.month // 12)
-                # Пытаемся сохранить день (например 30-е число), если нет - берем последнее число месяца
-                try:
-                    new_date = old_date.replace(year=new_year, month=new_month)
-                except ValueError:
-                    # Если было 31 января, а сл. месяц февраль
-                    if new_month == 2:
-                        new_date = old_date.replace(year=new_year, month=new_month, day=28)
-                    else:
-                        new_date = old_date.replace(year=new_year, month=new_month, day=30)
-            
-            elif sub['period'] == 'year':
-                new_date = old_date.replace(year=old_date.year + 1)
+                if user_id is not None:
+                    msg = (
+                        "🔔 Напоминание!\n"
+                        f"Через 3 дня оплата подписки: {name}\n"
+                        f"Сумма: {amount} {currency}"
+                    )
+                    send_telegram(user_id, msg)
+                    notified += 1
 
-            # Обновляем в базе
-            supabase.table("subscriptions").update({"next_date": new_date.strftime('%Y-%m-%d')}).eq("id", sub['id']).execute()
+                # 2) Move next_date forward
+                old = datetime.strptime(sub["next_date"], "%Y-%m-%d").date()
+                new_d = _next_date(old, sub.get("period"))
 
-        self.send_response(200)
-        self.end_headers()
-        self.wfile.write(f"Processed {len(subs)} subscriptions".encode('utf-8'))
+                supabase.table("subscriptions").update(
+                    {"next_date": new_d.strftime("%Y-%m-%d")}
+                ).eq("id", sub["id"]).execute()
+
+            except Exception:
+                errors += 1
+                # keep going, do not fail whole cron
+
+        send_ok(self, {
+            "target_date": target_date,
+            "processed": processed,
+            "notified": notified,
+            "errors": errors,
+        })
