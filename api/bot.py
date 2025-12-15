@@ -21,9 +21,9 @@ SYMBOLS = {"RUB": "₽", "USD": "$", "EUR": "€"}
 # Вынес отдельно, чтобы не захламлять основной цикл
 EXPENSE_CATEGORIES = {
     "Алкоголь и Табак": [
-        "красное и белое", "к&б", "бристоль", "vinlab", "винлаб", "winestyle", "simplewine", 
-        "duty free", "heinemann", "dufry", "tabak", "tobacco", "smoke", "vape", "iqos", "glo", 
-        "hookah", "shisha", "cigar", "wine", "spirits", "liquor", "beer", "brewery", "pub", 
+        "красное и белое", "к&б", "пиво", "винчик", "винлаб", "winestyle", "simplewine", 
+        "duty free", "сижки", "dufry", "вино", "tobacco", "smoke", "vape", "iqos", "glo", 
+        "сиги", "сигареты", "cigar", "wine", "spirits", "liquor", "beer", "brewery", "pub", 
         "alcohol", "drink", "alko", "off license", "bodega"
     ],
     "Продукты": [
