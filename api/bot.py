@@ -1,27 +1,40 @@
+from __future__ import annotations
+
 from http.server import BaseHTTPRequestHandler
 import os
+import json
+import re
 import requests
+import hmac
+import hashlib
+from urllib.parse import parse_qsl
 
 from api.db import get_supabase
 from api.utils import read_json
 
 
-def _get_env(name: str) -> str:
-    value = os.environ.get(name)
-    if not value:
-        raise RuntimeError(f"Missing required environment variable: {name}")
-    return value
+# ========= ENV =========
+def _get_env(name: str, default: str | None = None) -> str:
+    v = os.environ.get(name)
+    if v:
+        return v
+    if default is not None:
+        return default
+    raise RuntimeError(f"Missing required environment variable: {name}")
 
 
-# REQUIRED env vars
 TG_TOKEN = _get_env("TELEGRAM_TOKEN")
 WEBHOOK_SECRET = _get_env("TELEGRAM_WEBHOOK_SECRET")
 WEBHOOK_SECRET_HEADER = "X-Telegram-Bot-Api-Secret-Token"
 
-# Currency symbols
+DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_API_KEY", "")
+DEEPSEEK_MODEL = os.environ.get("DEEPSEEK_MODEL", "deepseek-chat")
+DEEPSEEK_BASE_URL = os.environ.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
+
+
+# ========= CONSTANTS =========
 SYMBOLS = {"RUB": "₽", "USD": "$", "EUR": "€"}
 
-# Categories dictionary
 EXPENSE_CATEGORIES = {
     "Алкоголь и Табак": [
         "красное и белое", "к&б", "пиво", "винчик", "винлаб", "winestyle", "simplewine",
@@ -74,14 +87,10 @@ EXPENSE_CATEGORIES = {
 }
 
 
+# ========= TELEGRAM SEND =========
 def send_telegram(chat_id, text: str) -> None:
-    """
-    Send a message via Telegram Bot API.
-    If it fails, prints error into Vercel logs (Deployments -> Logs).
-    """
     url = f"https://api.telegram.org/bot{TG_TOKEN}/sendMessage"
     payload = {"chat_id": chat_id, "text": text}
-
     try:
         r = requests.post(url, json=payload, timeout=10)
         if r.status_code != 200:
@@ -90,19 +99,136 @@ def send_telegram(chat_id, text: str) -> None:
         print("send_telegram ERROR:", e)
 
 
-def _extract_amount(text: str):
+# ========= SIMPLE (FALLBACK) PARSER =========
+def _extract_amount_simple(text: str) -> int | None:
     digits = "".join(ch for ch in text if ch.isdigit())
     if not digits:
         return None
     try:
         amt = int(digits)
-        if amt < 0 or amt > 10_000_000:
+        if amt <= 0 or amt > 10_000_000:
             return None
         return amt
     except Exception:
         return None
 
 
+def parse_fallback(text_raw: str) -> dict | None:
+    text = (text_raw or "").lower().strip()
+    amount = _extract_amount_simple(text)
+    if amount is None:
+        return None
+
+    record_type = "expense"
+    category = "Разное"
+
+    income_words = ["зарплата", "зп", "аванс", "приход", "перевод", "кэшбэк", "доход", "salary", "deposit"]
+    if any(w in text for w in income_words):
+        record_type = "income"
+        category = "Доход"
+    else:
+        for cat_name, keywords in EXPENSE_CATEGORIES.items():
+            if any(k in text for k in keywords):
+                category = cat_name
+                break
+
+    # description: original text without excessive spaces
+    desc = re.sub(r"\s+", " ", text_raw).strip() if text_raw else "Запись"
+    return {
+        "amount": amount,
+        "type": record_type,
+        "category": category,
+        "description": desc
+    }
+
+
+# ========= DEEPSEEK PARSER =========
+def parse_with_deepseek(text_raw: str) -> dict | None:
+    """
+    Returns dict: {amount:int, type:'income'|'expense', category:str, description:str}
+    or None if cannot parse.
+    """
+    if not DEEPSEEK_API_KEY:
+        return None
+
+    prompt = f"""
+Твоя задача: распарсить финансовую запись пользователя и вернуть ТОЛЬКО JSON.
+
+Вход (текст пользователя):
+{text_raw}
+
+Правила:
+- amount: целое число > 0 (сумма в сообщении)
+- type: "income" если это доход, иначе "expense"
+- category: одна из категорий:
+  ["Алкоголь и Табак","Продукты","Кафе и Рестораны","Транспорт","Авто и Бензин","Дом и Связь","Здоровье и Аптека","Одежда и Шопинг","Развлечения","Разное","Доход"]
+- description: краткое описание (можно исходный текст, но без суммы)
+
+Если сумму найти нельзя — верни JSON: {{"error":"no_amount"}}.
+"""
+
+    url = f"{DEEPSEEK_BASE_URL}/chat/completions"
+    headers = {
+        "Authorization": f"Bearer {DEEPSEEK_API_KEY}",
+        "Content-Type": "application/json",
+    }
+
+    payload = {
+        "model": DEEPSEEK_MODEL,
+        "messages": [
+            {"role": "system", "content": "Ты парсер трат/доходов для финансового бота. Возвращай только JSON."},
+            {"role": "user", "content": prompt},
+        ],
+        "temperature": 0.0,
+        # DeepSeek поддерживает JSON output через response_format
+        "response_format": {"type": "json_object"},
+        "stream": False,
+        "max_tokens": 300,
+    }
+
+    try:
+        r = requests.post(url, headers=headers, json=payload, timeout=15)
+        if r.status_code != 200:
+            print("DeepSeek ERROR:", r.status_code, r.text)
+            return None
+
+        j = r.json()
+        content = j["choices"][0]["message"].get("content", "") or ""
+        data = json.loads(content)
+
+        if isinstance(data, dict) and data.get("error") == "no_amount":
+            return None
+
+        # Validate
+        amount = data.get("amount")
+        if not isinstance(amount, int) or amount <= 0:
+            return None
+
+        rtype = data.get("type")
+        if rtype not in ("income", "expense"):
+            rtype = "expense"
+
+        category = data.get("category") or ("Доход" if rtype == "income" else "Разное")
+        allowed = {
+            "Алкоголь и Табак","Продукты","Кафе и Рестораны","Транспорт","Авто и Бензин",
+            "Дом и Связь","Здоровье и Аптека","Одежда и Шопинг","Развлечения","Разное","Доход"
+        }
+        if category not in allowed:
+            category = "Доход" if rtype == "income" else "Разное"
+
+        desc = data.get("description") or ""
+        desc = re.sub(r"\s+", " ", str(desc)).strip()
+        if not desc:
+            desc = re.sub(r"\s+", " ", text_raw).strip() if text_raw else "Запись"
+
+        return {"amount": amount, "type": rtype, "category": category, "description": desc}
+
+    except Exception as e:
+        print("DeepSeek parse exception:", e)
+        return None
+
+
+# ========= MAIN HANDLER =========
 class handler(BaseHTTPRequestHandler):
     def do_POST(self):
         # 0) Webhook secret validation
@@ -113,40 +239,29 @@ class handler(BaseHTTPRequestHandler):
             self.wfile.write(b"Unauthorized")
             return
 
-        # 1) Parse JSON safely
+        # 1) Parse Telegram update JSON
         body = read_json(self)
         if body is None:
-            return  # read_json already sent an error response
+            return
 
-        # Telegram updates may contain different fields; handle only "message"
         message = body.get("message")
         if not isinstance(message, dict):
-            self.send_response(200)
-            self.end_headers()
-            self.wfile.write(b"OK")
-            return
+            self.send_response(200); self.end_headers(); self.wfile.write(b"OK"); return
 
         chat = message.get("chat") or {}
         chat_id = chat.get("id")
         if chat_id is None:
-            self.send_response(200)
-            self.end_headers()
-            self.wfile.write(b"OK")
-            return
+            self.send_response(200); self.end_headers(); self.wfile.write(b"OK"); return
 
         text_raw = message.get("text") or ""
-        text_lc = str(text_raw).lower().strip()
-
-        # Ignore non-text messages gracefully
+        text_lc = str(text_raw).strip()
         if not text_lc:
-            self.send_response(200)
-            self.end_headers()
-            self.wfile.write(b"OK")
-            return
+            self.send_response(200); self.end_headers(); self.wfile.write(b"OK"); return
 
         supabase = get_supabase()
 
-        # 2) Get user currency
+        # 2) User currency
+        currency_code = "RUB"
         try:
             user_settings = (
                 supabase.table("user_settings")
@@ -154,61 +269,43 @@ class handler(BaseHTTPRequestHandler):
                 .eq("user_id", chat_id)
                 .execute()
             )
-            currency_code = "RUB"
             if user_settings.data:
                 currency_code = user_settings.data[0].get("currency") or "RUB"
         except Exception as e:
             print("Supabase settings ERROR:", e)
-            currency_code = "RUB"
 
         symbol = SYMBOLS.get(currency_code, "₽")
 
-        # 3) Parse amount
-        amount = _extract_amount(text_lc)
-        if amount is None:
-            send_telegram(chat_id, f"Напиши сумму (Валюта: {currency_code})")
-            self.send_response(200)
-            self.end_headers()
-            self.wfile.write(b"OK")
-            return
+        # 3) Parse message: DeepSeek -> fallback
+        parsed = parse_with_deepseek(text_raw) or parse_fallback(text_raw)
+        if parsed is None:
+            send_telegram(chat_id, f"Напиши сумму (Валюта: {currency_code}). Например: 450 кофе")
+            self.send_response(200); self.end_headers(); self.wfile.write(b"OK"); return
 
-        # 4) Determine income/expense & category
-        record_type = "expense"
-        category = "Разное"
+        amount = parsed["amount"]
+        record_type = parsed["type"]
+        category = parsed["category"]
+        description = parsed["description"]
 
-        income_words = ["зарплата", "зп", "аванс", "приход", "перевод", "кэшбэк", "доход", "salary", "deposit"]
-        if any(w in text_lc for w in income_words):
-            record_type = "income"
-            category = "Доход"
-        else:
-            for cat_name, keywords in EXPENSE_CATEGORIES.items():
-                if any(k in text_lc for k in keywords):
-                    category = cat_name
-                    break
-
-        # 5) Save record to DB
+        # 4) Save
         try:
             data = {
                 "user_id": chat_id,
                 "amount": amount,
                 "category": category,
-                "description": str(text_raw) if text_raw else "Запись",
+                "description": description,
                 "type": record_type,
             }
             supabase.table("expenses").insert(data).execute()
         except Exception as e:
             print("Supabase insert ERROR:", e)
             send_telegram(chat_id, "Ошибка при сохранении. Попробуй ещё раз.")
-            self.send_response(200)
-            self.end_headers()
-            self.wfile.write(b"OK")
-            return
+            self.send_response(200); self.end_headers(); self.wfile.write(b"OK"); return
 
-        # 6) Reply
+        # 5) Reply
         icon = "💰" if record_type == "income" else "💸"
         send_telegram(chat_id, f"{icon} {category}: {amount}{symbol}")
 
-        # 7) ACK Telegram
         self.send_response(200)
         self.end_headers()
         self.wfile.write(b"OK")
