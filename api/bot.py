@@ -26,11 +26,18 @@ WEBHOOK_SECRET_HEADER = "X-Telegram-Bot-Api-Secret-Token"
 
 DEEPSEEK_API_KEY = (os.environ.get("DEEPSEEK_API_KEY") or "").strip()
 DEEPSEEK_MODEL = (os.environ.get("DEEPSEEK_MODEL") or "deepseek-chat").strip()
+
+# IMPORTANT: DeepSeek обычно OpenAI-compatible через /v1/...
 DEEPSEEK_BASE_URL = (os.environ.get("DEEPSEEK_BASE_URL") or "https://api.deepseek.com").strip()
 
 
 # ========= CONSTANTS =========
 SYMBOLS = {"RUB": "₽", "USD": "$", "EUR": "€"}
+
+ALLOWED_CATEGORIES = [
+    "Алкоголь и Табак", "Продукты", "Кафе и Рестораны", "Транспорт", "Авто и Бензин",
+    "Дом и Связь", "Здоровье и Аптека", "Одежда и Шопинг", "Развлечения", "Разное", "Доход"
+]
 
 EXPENSE_CATEGORIES = {
     "Алкоголь и Табак": ["к&б", "красное и белое", "пиво", "вино", "wine", "beer", "alcohol", "iqos", "glo", "vape"],
@@ -95,58 +102,93 @@ def parse_fallback(text_raw: str) -> dict | None:
 
 
 # ========= DEEPSEEK PARSER =========
+def _deepseek_url() -> str:
+    base = DEEPSEEK_BASE_URL.rstrip("/")
+    # если пользователь указал .../v1 — норм, если нет — добавим
+    if not base.endswith("/v1"):
+        base = base + "/v1"
+    return base + "/chat/completions"
+
+
+def _extract_json_object(s: str) -> dict | None:
+    """
+    Пытаемся вытащить первый JSON-объект из строки (если модель обрамила текстом).
+    """
+    if not s:
+        return None
+    s = s.strip()
+
+    # если это уже чистый json
+    try:
+        obj = json.loads(s)
+        return obj if isinstance(obj, dict) else None
+    except Exception:
+        pass
+
+    # ищем первый {...}
+    m = re.search(r"\{[\s\S]*\}", s)
+    if not m:
+        return None
+    try:
+        obj = json.loads(m.group(0))
+        return obj if isinstance(obj, dict) else None
+    except Exception:
+        return None
+
+
 def parse_with_deepseek(text_raw: str) -> dict | None:
     if not DEEPSEEK_API_KEY:
         print("DeepSeek disabled: DEEPSEEK_API_KEY is empty in this deployment")
         return None
 
-    url = f"{DEEPSEEK_BASE_URL}/chat/completions"
+    url = _deepseek_url()
     headers = {
         "Authorization": f"Bearer {DEEPSEEK_API_KEY}",
         "Content-Type": "application/json",
     }
 
     prompt = f"""
-Распарси финансовую запись и верни ТОЛЬКО JSON.
+Верни ТОЛЬКО JSON (без текста вокруг). Финансовая запись пользователя:
 
-Текст:
 {text_raw}
 
-Формат ответа (строго):
+Формат:
 {{
   "amount": 123,
   "type": "expense" | "income",
-  "category": "Алкоголь и Табак" | "Продукты" | "Кафе и Рестораны" | "Транспорт" | "Авто и Бензин" | "Дом и Связь" | "Здоровье и Аптека" | "Одежда и Шопинг" | "Развлечения" | "Разное" | "Доход",
+  "category": {json.dumps(ALLOWED_CATEGORIES, ensure_ascii=False)},
   "description": "коротко без суммы"
 }}
 
-Если суммы нет: {{"error":"no_amount"}}
+Если суммы нет, верни: {{"error":"no_amount"}}
 """
 
     payload = {
         "model": DEEPSEEK_MODEL,
         "messages": [
-            {"role": "system", "content": "Ты парсер трат/доходов. Возвращай только JSON."},
+            {"role": "system", "content": "Ты парсер трат/доходов для финансового бота. Отвечай только JSON."},
             {"role": "user", "content": prompt},
         ],
         "temperature": 0.0,
-        "max_tokens": 300,
+        "max_tokens": 250,
         "stream": False,
-        # Если DeepSeek не поддержит это поле — он вернёт ошибку, мы увидим в логах и уйдём в fallback.
-        "response_format": {"type": "json_object"},
     }
 
     try:
-        r = requests.post(url, headers=headers, json=payload, timeout=20)
+        r = requests.post(url, headers=headers, json=payload, timeout=25)
         if r.status_code != 200:
             print("DeepSeek HTTP ERROR:", r.status_code, r.text)
             return None
 
         j = r.json()
         content = j["choices"][0]["message"].get("content", "") or ""
-        data = json.loads(content)
+        data = _extract_json_object(content)
 
-        if isinstance(data, dict) and data.get("error") == "no_amount":
+        if not isinstance(data, dict):
+            print("DeepSeek parse: not a JSON object. content=", content[:200])
+            return None
+
+        if data.get("error") == "no_amount":
             return None
 
         amount = data.get("amount")
@@ -158,12 +200,8 @@ def parse_with_deepseek(text_raw: str) -> dict | None:
         if rtype not in ("income", "expense"):
             rtype = "expense"
 
-        allowed = {
-            "Алкоголь и Табак","Продукты","Кафе и Рестораны","Транспорт","Авто и Бензин",
-            "Дом и Связь","Здоровье и Аптека","Одежда и Шопинг","Развлечения","Разное","Доход"
-        }
         category = data.get("category") or ("Доход" if rtype == "income" else "Разное")
-        if category not in allowed:
+        if category not in ALLOWED_CATEGORIES:
             category = "Доход" if rtype == "income" else "Разное"
 
         desc = (data.get("description") or "").strip()
@@ -227,6 +265,7 @@ class handler(BaseHTTPRequestHandler):
         # Parse: DeepSeek -> fallback
         parsed = parse_with_deepseek(text_raw)
         used_ai = parsed is not None
+
         if not parsed:
             parsed = parse_fallback(text_raw)
             used_ai = False
@@ -254,7 +293,6 @@ class handler(BaseHTTPRequestHandler):
             send_telegram(chat_id, "Ошибка при сохранении. Попробуй ещё раз.")
             self.send_response(200); self.end_headers(); self.wfile.write(b"OK"); return
 
-        # Reply with indicator
         icon = "💰" if record_type == "income" else "💸"
         mode = "🤖 AI" if used_ai else "🧩 Fallback"
         send_telegram(chat_id, f"{icon} {category}: {amount}{symbol}\n{mode}")
