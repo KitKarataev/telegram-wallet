@@ -1,25 +1,43 @@
 from http.server import BaseHTTPRequestHandler
-import json
-from supabase import create_client
-import os
+
+from api.auth import require_user_id
+from api.db import get_supabase
+from api.utils import read_json, send_ok, send_error
+
+
+ALLOWED_CURRENCIES = {"RUB", "USD", "EUR"}
+
 
 class handler(BaseHTTPRequestHandler):
     def do_POST(self):
-        # 1. Читаем, какую валюту хочет юзер
-        length = int(self.headers['Content-Length'])
-        body = json.loads(self.rfile.read(length))
-        user_id = body.get('user_id')
-        currency = body.get('currency') # "RUB", "USD" или "EUR"
+        # 1) Auth: user_id ONLY from Telegram initData
+        user_id = require_user_id(self)
+        if user_id is None:
+            return  # 401 already sent
 
-        url = os.environ.get("SUPABASE_URL")
-        key = os.environ.get("SUPABASE_KEY")
-        supabase = create_client(url, key)
+        # 2) Read JSON safely
+        body = read_json(self)
+        if body is None:
+            return  # error already sent
 
-        # 2. Сохраняем настройку (Upsert - обновить или создать)
-        if user_id and currency:
-            data = {"user_id": user_id, "currency": currency}
-            supabase.table("user_settings").upsert(data).execute()
+        currency = body.get("currency")
+        if not isinstance(currency, str):
+            send_error(self, 400, "currency must be a string")
+            return
 
-        self.send_response(200)
-        self.end_headers()
-        self.wfile.write(b'OK')
+        currency = currency.upper().strip()
+        if currency not in ALLOWED_CURRENCIES:
+            send_error(self, 400, f"Invalid currency. Allowed: {sorted(ALLOWED_CURRENCIES)}")
+            return
+
+        supabase = get_supabase()
+
+        # 3) Upsert setting (scoped by user_id)
+        data = {
+            "user_id": user_id,
+            "currency": currency,
+        }
+
+        supabase.table("user_settings").upsert(data).execute()
+
+        send_ok(self, {"currency": currency})
