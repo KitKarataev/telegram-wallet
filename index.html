@@ -153,9 +153,9 @@
     </div>
 
     <script>
-        const tg = window.Telegram.WebApp;
-        tg.expand();
-        const user_id = tg.initDataUnsafe?.user?.id || 12345;
+        const tg = window.Telegram?.WebApp;
+        tg?.expand?.();
+
         let SYMBOLS = {"RUB": "₽", "USD": "$", "EUR": "€"};
         let currentCurrency = "RUB";
         let currentPeriod = 'month';
@@ -164,7 +164,36 @@
         document.getElementById('sub-date').valueAsDate = new Date();
         document.getElementById('date-picker').valueAsDate = new Date();
 
-        // --- ЛОГИКА СВАЙПА (Новая) ---
+        // ===== AUTH + FETCH WRAPPER =====
+        function tgInitData() {
+            return tg?.initData || "";
+        }
+
+        async function tgFetch(url, options = {}) {
+            const headers = new Headers(options.headers || {});
+            if (options.body && !headers.has("Content-Type")) {
+                headers.set("Content-Type", "application/json; charset=utf-8");
+            }
+
+            const initData = tgInitData();
+            if (initData) {
+                headers.set("X-Tg-Init-Data", initData);
+            }
+
+            const res = await fetch(url, { ...options, headers });
+            const text = await res.text();
+            let parsed;
+            try { parsed = JSON.parse(text); } catch { parsed = text; }
+
+            if (!res.ok) {
+                console.error("API error", res.status, parsed);
+                throw new Error(parsed?.error || "API error");
+            }
+            return parsed;
+        }
+        // ===== END WRAPPER =====
+
+        // --- ЛОГИКА СВАЙПА ---
         let touchStartX = 0;
         let touchEndX = 0;
 
@@ -181,15 +210,11 @@
 
         function handleSwipe(element) {
             const swipeDistance = touchStartX - touchEndX;
-            // Если свайпнули влево больше чем на 50px
             if (swipeDistance > 50) {
-                // Закрываем все остальные открытые
                 document.querySelectorAll('.history-item.swiped').forEach(el => el.classList.remove('swiped'));
-                // Открываем текущий
                 element.classList.add('swiped');
-                tg.HapticFeedback.selectionChanged();
+                tg?.HapticFeedback?.selectionChanged?.();
             }
-            // Если свайпнули вправо - закрываем
             if (swipeDistance < -50) {
                 element.classList.remove('swiped');
             }
@@ -218,9 +243,9 @@
         }
 
         async function loadStats() {
-            const res = await fetch(`/api/stats?user_id=${user_id}&period=${currentPeriod}`);
-            const data = await res.json();
-            
+            const res = await tgFetch(`/api/stats?period=${currentPeriod}`, { method: "GET" });
+            const data = res.data;
+
             currentCurrency = data.currency;
             document.getElementById('currency-select').value = data.currency;
             const sym = SYMBOLS[data.currency] || '';
@@ -228,18 +253,16 @@
             document.getElementById('total-balance').innerText = `${data.total_balance} ${sym}`;
             document.getElementById('inc-val').innerText = `+${data.period.income}`;
             document.getElementById('exp-val').innerText = `-${data.period.expense}`;
-            
-            // Рендер Истории со Свайпами
+
             const list = document.getElementById('history');
             list.innerHTML = "";
-            
+
             data.history.forEach(item => {
                 const color = item.type === 'income' ? '#10b981' : '#e2e8f0';
                 const sign = item.type === 'income' ? '+' : '-';
                 const dateObj = new Date(item.created_at);
                 const dateStr = dateObj.toLocaleDateString('ru-RU', {day:'numeric', month:'short'});
 
-                // Создаем элементы через JS, чтобы навесить события
                 const wrapper = document.createElement('div');
                 wrapper.className = 'swipe-wrapper';
 
@@ -253,15 +276,13 @@
                         <div style="color:${color}; font-weight:700; font-size:16px">${sign}${item.amount} ${sym}</div>
                     </div>
                 `;
-                
-                // Находим верхний слой и добавляем свайп-логику
+
                 const itemDiv = wrapper.querySelector('.history-item');
                 addSwipeLogic(itemDiv);
-                
+
                 list.appendChild(wrapper);
             });
 
-            // Рендер Подписок
             const subList = document.getElementById('subs-list');
             subList.innerHTML = "";
             if (data.subscriptions) {
@@ -287,8 +308,18 @@
             const input = document.getElementById('expense');
             const dateInput = document.getElementById('date-picker');
             if(!input.value) return;
-            tg.HapticFeedback.impactOccurred('light');
-            await fetch('/api/index', { method: 'POST', body: JSON.stringify({ text: input.value, user_id: user_id, type: currentType, date: dateInput.value }) });
+
+            tg?.HapticFeedback?.impactOccurred?.('light');
+
+            await tgFetch('/api/index', {
+                method: 'POST',
+                body: JSON.stringify({
+                    text: input.value,
+                    type: currentType,
+                    date: dateInput.value
+                })
+            });
+
             input.value = "";
             loadStats();
         }
@@ -302,7 +333,10 @@
         
         async function changeCurrency() {
             const s = document.getElementById('currency-select');
-            await fetch('/api/settings', { method: 'POST', body: JSON.stringify({ user_id: user_id, currency: s.value }) });
+            await tgFetch('/api/settings', {
+                method: 'POST',
+                body: JSON.stringify({ currency: s.value })
+            });
             loadStats();
         }
 
@@ -312,30 +346,75 @@
             const date = document.getElementById('sub-date').value;
             const period = document.getElementById('sub-period').value;
             if(!name || !amount) return;
-            await fetch('/api/subs', { method: 'POST', body: JSON.stringify({ action: 'add', user_id: user_id, name: name, amount: amount, currency: currentCurrency, date: date, period: period }) });
-            document.getElementById('sub-name').value = ""; document.getElementById('sub-amount').value = "";
-            tg.HapticFeedback.notificationOccurred('success');
+
+            await tgFetch('/api/subs', {
+                method: 'POST',
+                body: JSON.stringify({
+                    action: 'add',
+                    name: name,
+                    amount: amount,
+                    currency: currentCurrency,
+                    date: date,
+                    period: period
+                })
+            });
+
+            document.getElementById('sub-name').value = "";
+            document.getElementById('sub-amount').value = "";
+            tg?.HapticFeedback?.notificationOccurred?.('success');
             loadStats();
         }
 
         async function delSub(id) {
             if(!confirm("Удалить подписку?")) return;
-            await fetch('/api/subs', { method: 'POST', body: JSON.stringify({ action: 'delete', id: id }) });
+            await tgFetch('/api/subs', {
+                method: 'POST',
+                body: JSON.stringify({ action: 'delete', id: id })
+            });
             loadStats();
         }
 
-        // Функция удаления траты (вызывается из красного слоя)
         async function deleteItem(id) {
             if(!confirm("Удалить эту запись?")) return;
-            tg.HapticFeedback.notificationOccurred('error');
-            await fetch('/api/delete', { method: 'POST', body: JSON.stringify({ id: id }) });
+            tg?.HapticFeedback?.notificationOccurred?.('error');
+            await tgFetch('/api/delete', {
+                method: 'POST',
+                body: JSON.stringify({ id: id })
+            });
             loadStats();
         }
 
         async function downloadReport() {
-            const link = `/api/export?user_id=${user_id}`;
-            if (tg.openLink) { tg.openLink(`https://${window.location.hostname}${link}`); } 
-            else { window.location.href = link; }
+            // Export must be fetched with header (cannot be done with openLink)
+            const initData = tgInitData();
+            if (!initData) {
+                alert("Открой приложение внутри Telegram");
+                return;
+            }
+
+            const res = await fetch('/api/export', {
+                method: "GET",
+                headers: { "X-Tg-Init-Data": initData }
+            });
+
+            if (!res.ok) {
+                const t = await res.text();
+                console.error("Export error", res.status, t);
+                alert("Не удалось скачать отчет");
+                return;
+            }
+
+            const blob = await res.blob();
+            const url = URL.createObjectURL(blob);
+
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = "finance_report.csv";
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+
+            URL.revokeObjectURL(url);
         }
 
         loadStats();
