@@ -63,7 +63,7 @@
         input, select.full { width: 100%; padding: 14px; border-radius: 12px; border: 1px solid #334155; background: #0f172a; color: white; font-size: 16px; box-sizing: border-box; margin-bottom: 12px; outline: none; transition: 0.2s; }
         input:focus { border-color: #3b82f6; }
         
-        button.main-btn { width: 100%; padding: 14px; background: #ef4444; color: white; border: none; border-radius: 12px; font-weight: 700; cursor: pointer; font-size: 16px; transition: transform 0.1s; }
+        button.main-btn { width: 100%; padding: 14px; background: #ef4444; color: white; border: none; border-radius: 12px; font-weight: 700; cursor: pointer; font-size: 16px; transition: transform 0.1s; touch-action: manipulation; }
         button.main-btn:active { transform: scale(0.98); }
 
         .sub-item { background: #1e293b; border-radius: 16px; padding: 15px; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center; border: 1px solid #334155; }
@@ -154,7 +154,19 @@
 
     <script>
         const tg = window.Telegram?.WebApp;
-        tg?.expand?.();
+
+        // Если открыт не внутри Telegram — покажем сообщение (иначе всё будет 401)
+        if (!tg) {
+            alert("Открой это приложение внутри Telegram");
+        } else {
+            tg.expand?.();
+        }
+
+        // Глобальный ловец JS ошибок — вместо "пустого экрана"
+        window.addEventListener("error", (e) => {
+            console.error("JS ERROR:", e?.error || e?.message || e);
+            alert("Ошибка в приложении: " + (e?.message || "см. console"));
+        });
 
         let SYMBOLS = {"RUB": "₽", "USD": "$", "EUR": "€"};
         let currentCurrency = "RUB";
@@ -170,15 +182,16 @@
         }
 
         async function tgFetch(url, options = {}) {
+            const initData = tgInitData();
+            if (!initData) {
+                throw new Error("Нет Telegram initData. Открой WebApp внутри Telegram через кнопку бота.");
+            }
+
             const headers = new Headers(options.headers || {});
             if (options.body && !headers.has("Content-Type")) {
                 headers.set("Content-Type", "application/json; charset=utf-8");
             }
-
-            const initData = tgInitData();
-            if (initData) {
-                headers.set("X-Tg-Init-Data", initData);
-            }
+            headers.set("X-Tg-Init-Data", initData);
 
             const res = await fetch(url, { ...options, headers });
             const text = await res.text();
@@ -187,7 +200,7 @@
 
             if (!res.ok) {
                 console.error("API error", res.status, parsed);
-                throw new Error(parsed?.error || "API error");
+                throw new Error(parsed?.error || ("API error " + res.status));
             }
             return parsed;
         }
@@ -243,50 +256,52 @@
         }
 
         async function loadStats() {
-            const res = await tgFetch(`/api/stats?period=${currentPeriod}`, { method: "GET" });
-            const data = res.data;
+            try {
+                const res = await tgFetch(`/api/stats?period=${currentPeriod}`, { method: "GET" });
+                const data = res?.data || res; // на всякий случай
 
-            currentCurrency = data.currency;
-            document.getElementById('currency-select').value = data.currency;
-            const sym = SYMBOLS[data.currency] || '';
+                currentCurrency = data.currency || "RUB";
+                document.getElementById('currency-select').value = currentCurrency;
+                const sym = SYMBOLS[currentCurrency] || '';
 
-            document.getElementById('total-balance').innerText = `${data.total_balance} ${sym}`;
-            document.getElementById('inc-val').innerText = `+${data.period.income}`;
-            document.getElementById('exp-val').innerText = `-${data.period.expense}`;
+                document.getElementById('total-balance').innerText = `${data.total_balance ?? 0} ${sym}`;
+                document.getElementById('inc-val').innerText = `+${data.period?.income ?? 0}`;
+                document.getElementById('exp-val').innerText = `-${data.period?.expense ?? 0}`;
 
-            const list = document.getElementById('history');
-            list.innerHTML = "";
+                const list = document.getElementById('history');
+                list.innerHTML = "";
 
-            data.history.forEach(item => {
-                const color = item.type === 'income' ? '#10b981' : '#e2e8f0';
-                const sign = item.type === 'income' ? '+' : '-';
-                const dateObj = new Date(item.created_at);
-                const dateStr = dateObj.toLocaleDateString('ru-RU', {day:'numeric', month:'short'});
+                const history = data.history || [];
+                history.forEach(item => {
+                    const color = item.type === 'income' ? '#10b981' : '#e2e8f0';
+                    const sign = item.type === 'income' ? '+' : '-';
+                    const dateObj = new Date(item.created_at);
+                    const dateStr = dateObj.toLocaleDateString('ru-RU', {day:'numeric', month:'short'});
 
-                const wrapper = document.createElement('div');
-                wrapper.className = 'swipe-wrapper';
+                    const wrapper = document.createElement('div');
+                    wrapper.className = 'swipe-wrapper';
 
-                wrapper.innerHTML = `
-                    <div class="delete-layer" onclick="deleteItem(${item.id})">🗑</div>
-                    <div class="history-item">
-                        <div>
-                            <div style="font-weight:600; font-size:15px">${item.description}</div>
-                            <div style="font-size:12px; color:#64748b; margin-top:2px">${dateStr} • ${item.category}</div>
+                    wrapper.innerHTML = `
+                        <div class="delete-layer" onclick="deleteItem(${item.id})">🗑</div>
+                        <div class="history-item">
+                            <div>
+                                <div style="font-weight:600; font-size:15px">${item.description}</div>
+                                <div style="font-size:12px; color:#64748b; margin-top:2px">${dateStr} • ${item.category}</div>
+                            </div>
+                            <div style="color:${color}; font-weight:700; font-size:16px">${sign}${item.amount} ${sym}</div>
                         </div>
-                        <div style="color:${color}; font-weight:700; font-size:16px">${sign}${item.amount} ${sym}</div>
-                    </div>
-                `;
+                    `;
 
-                const itemDiv = wrapper.querySelector('.history-item');
-                addSwipeLogic(itemDiv);
+                    const itemDiv = wrapper.querySelector('.history-item');
+                    addSwipeLogic(itemDiv);
 
-                list.appendChild(wrapper);
-            });
+                    list.appendChild(wrapper);
+                });
 
-            const subList = document.getElementById('subs-list');
-            subList.innerHTML = "";
-            if (data.subscriptions) {
-                data.subscriptions.forEach(sub => {
+                const subList = document.getElementById('subs-list');
+                subList.innerHTML = "";
+                const subs = data.subscriptions || [];
+                subs.forEach(sub => {
                     const dateObj = new Date(sub.next_date);
                     const dateStr = dateObj.toLocaleDateString('ru-RU');
                     subList.innerHTML += `
@@ -301,6 +316,10 @@
                             </div>
                         </div>`;
                 });
+
+            } catch (e) {
+                console.error(e);
+                alert("Не удалось загрузить данные: " + (e?.message || e));
             }
         }
 
@@ -309,19 +328,28 @@
             const dateInput = document.getElementById('date-picker');
             if(!input.value) return;
 
+            // iPhone: первый тап часто закрывает клавиатуру вместо клика
+            input.blur();
+            dateInput.blur();
+
             tg?.HapticFeedback?.impactOccurred?.('light');
 
-            await tgFetch('/api/index', {
-                method: 'POST',
-                body: JSON.stringify({
-                    text: input.value,
-                    type: currentType,
-                    date: dateInput.value
-                })
-            });
+            try {
+                await tgFetch('/api/index', {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        text: input.value,
+                        type: currentType,
+                        date: dateInput.value
+                    })
+                });
 
-            input.value = "";
-            loadStats();
+                input.value = "";
+                await loadStats();
+            } catch (e) {
+                console.error(e);
+                alert("Ошибка добавления: " + (e?.message || e));
+            }
         }
 
         function setFilter(p, el) { 
@@ -333,11 +361,16 @@
         
         async function changeCurrency() {
             const s = document.getElementById('currency-select');
-            await tgFetch('/api/settings', {
-                method: 'POST',
-                body: JSON.stringify({ currency: s.value })
-            });
-            loadStats();
+            try {
+                await tgFetch('/api/settings', {
+                    method: 'POST',
+                    body: JSON.stringify({ currency: s.value })
+                });
+                loadStats();
+            } catch (e) {
+                console.error(e);
+                alert("Ошибка сохранения валюты: " + (e?.message || e));
+            }
         }
 
         async function addSub() {
@@ -347,76 +380,96 @@
             const period = document.getElementById('sub-period').value;
             if(!name || !amount) return;
 
-            await tgFetch('/api/subs', {
-                method: 'POST',
-                body: JSON.stringify({
-                    action: 'add',
-                    name: name,
-                    amount: amount,
-                    currency: currentCurrency,
-                    date: date,
-                    period: period
-                })
-            });
+            try {
+                await tgFetch('/api/subs', {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        action: 'add',
+                        name: name,
+                        amount: amount,
+                        currency: currentCurrency,
+                        date: date,
+                        period: period
+                    })
+                });
 
-            document.getElementById('sub-name').value = "";
-            document.getElementById('sub-amount').value = "";
-            tg?.HapticFeedback?.notificationOccurred?.('success');
-            loadStats();
+                document.getElementById('sub-name').value = "";
+                document.getElementById('sub-amount').value = "";
+                tg?.HapticFeedback?.notificationOccurred?.('success');
+                loadStats();
+            } catch (e) {
+                console.error(e);
+                alert("Ошибка подписки: " + (e?.message || e));
+            }
         }
 
         async function delSub(id) {
             if(!confirm("Удалить подписку?")) return;
-            await tgFetch('/api/subs', {
-                method: 'POST',
-                body: JSON.stringify({ action: 'delete', id: id })
-            });
-            loadStats();
+            try {
+                await tgFetch('/api/subs', {
+                    method: 'POST',
+                    body: JSON.stringify({ action: 'delete', id: id })
+                });
+                loadStats();
+            } catch (e) {
+                console.error(e);
+                alert("Ошибка удаления подписки: " + (e?.message || e));
+            }
         }
 
         async function deleteItem(id) {
             if(!confirm("Удалить эту запись?")) return;
             tg?.HapticFeedback?.notificationOccurred?.('error');
-            await tgFetch('/api/delete', {
-                method: 'POST',
-                body: JSON.stringify({ id: id })
-            });
-            loadStats();
+            try {
+                await tgFetch('/api/delete', {
+                    method: 'POST',
+                    body: JSON.stringify({ id: id })
+                });
+                loadStats();
+            } catch (e) {
+                console.error(e);
+                alert("Ошибка удаления: " + (e?.message || e));
+            }
         }
 
         async function downloadReport() {
-            // Export must be fetched with header (cannot be done with openLink)
-            const initData = tgInitData();
-            if (!initData) {
-                alert("Открой приложение внутри Telegram");
-                return;
+            try {
+                const initData = tgInitData();
+                if (!initData) {
+                    alert("Открой приложение внутри Telegram");
+                    return;
+                }
+
+                const res = await fetch('/api/export', {
+                    method: "GET",
+                    headers: { "X-Tg-Init-Data": initData }
+                });
+
+                if (!res.ok) {
+                    const t = await res.text();
+                    console.error("Export error", res.status, t);
+                    alert("Не удалось скачать отчет");
+                    return;
+                }
+
+                const blob = await res.blob();
+                const url = URL.createObjectURL(blob);
+
+                const a = document.createElement("a");
+                a.href = url;
+                a.download = "finance_report.csv";
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+
+                URL.revokeObjectURL(url);
+            } catch (e) {
+                console.error(e);
+                alert("Ошибка отчета: " + (e?.message || e));
             }
-
-            const res = await fetch('/api/export', {
-                method: "GET",
-                headers: { "X-Tg-Init-Data": initData }
-            });
-
-            if (!res.ok) {
-                const t = await res.text();
-                console.error("Export error", res.status, t);
-                alert("Не удалось скачать отчет");
-                return;
-            }
-
-            const blob = await res.blob();
-            const url = URL.createObjectURL(blob);
-
-            const a = document.createElement("a");
-            a.href = url;
-            a.download = "finance_report.csv";
-            document.body.appendChild(a);
-            a.click();
-            a.remove();
-
-            URL.revokeObjectURL(url);
         }
 
+        // Старт
         loadStats();
     </script>
 </body>
