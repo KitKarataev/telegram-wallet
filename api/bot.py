@@ -16,14 +16,12 @@ def _get_env(name: str) -> str:
 # REQUIRED env vars
 TG_TOKEN = _get_env("TELEGRAM_TOKEN")
 WEBHOOK_SECRET = _get_env("TELEGRAM_WEBHOOK_SECRET")
-
-# Telegram will send this header if you set secret_token when setting webhook
 WEBHOOK_SECRET_HEADER = "X-Telegram-Bot-Api-Secret-Token"
 
 # Currency symbols
 SYMBOLS = {"RUB": "₽", "USD": "$", "EUR": "€"}
 
-# Category keywords map (unchanged)
+# Categories dictionary
 EXPENSE_CATEGORIES = {
     "Алкоголь и Табак": [
         "красное и белое", "к&б", "пиво", "винчик", "винлаб", "winestyle", "simplewine",
@@ -77,20 +75,27 @@ EXPENSE_CATEGORIES = {
 
 
 def send_telegram(chat_id, text: str) -> None:
+    """
+    Send a message via Telegram Bot API.
+    If it fails, prints error into Vercel logs (Deployments -> Logs).
+    """
     url = f"https://api.telegram.org/bot{TG_TOKEN}/sendMessage"
     payload = {"chat_id": chat_id, "text": text}
-    # timeout prevents hanging the serverless function
-    requests.post(url, json=payload, timeout=10)
+
+    try:
+        r = requests.post(url, json=payload, timeout=10)
+        if r.status_code != 200:
+            raise RuntimeError(f"Telegram sendMessage failed: {r.status_code} {r.text}")
+    except Exception as e:
+        print("send_telegram ERROR:", e)
 
 
 def _extract_amount(text: str):
-    # Keep your MVP behavior: digits only
     digits = "".join(ch for ch in text if ch.isdigit())
     if not digits:
         return None
     try:
         amt = int(digits)
-        # basic sanity limit to reduce abuse
         if amt < 0 or amt > 10_000_000:
             return None
         return amt
@@ -100,7 +105,7 @@ def _extract_amount(text: str):
 
 class handler(BaseHTTPRequestHandler):
     def do_POST(self):
-        # 0) Webhook secret validation (critical)
+        # 0) Webhook secret validation
         secret = self.headers.get(WEBHOOK_SECRET_HEADER, "")
         if secret != WEBHOOK_SECRET:
             self.send_response(401)
@@ -108,15 +113,14 @@ class handler(BaseHTTPRequestHandler):
             self.wfile.write(b"Unauthorized")
             return
 
-        # 1) Parse JSON safely (limits + errors handled)
+        # 1) Parse JSON safely
         body = read_json(self)
         if body is None:
-            return  # 400 already sent
+            return  # read_json already sent an error response
 
-        # Telegram updates may contain many fields; we only handle 'message'
+        # Telegram updates may contain different fields; handle only "message"
         message = body.get("message")
         if not isinstance(message, dict):
-            # Always ACK Telegram to avoid retries, but do nothing
             self.send_response(200)
             self.end_headers()
             self.wfile.write(b"OK")
@@ -131,25 +135,36 @@ class handler(BaseHTTPRequestHandler):
             return
 
         text_raw = message.get("text") or ""
-        text = str(text_raw).lower()
+        text_lc = str(text_raw).lower().strip()
+
+        # Ignore non-text messages gracefully
+        if not text_lc:
+            self.send_response(200)
+            self.end_headers()
+            self.wfile.write(b"OK")
+            return
 
         supabase = get_supabase()
 
         # 2) Get user currency
-        user_settings = (
-            supabase.table("user_settings")
-            .select("currency")
-            .eq("user_id", chat_id)
-            .execute()
-        )
-        currency_code = "RUB"
-        if user_settings.data:
-            currency_code = user_settings.data[0].get("currency") or "RUB"
+        try:
+            user_settings = (
+                supabase.table("user_settings")
+                .select("currency")
+                .eq("user_id", chat_id)
+                .execute()
+            )
+            currency_code = "RUB"
+            if user_settings.data:
+                currency_code = user_settings.data[0].get("currency") or "RUB"
+        except Exception as e:
+            print("Supabase settings ERROR:", e)
+            currency_code = "RUB"
 
         symbol = SYMBOLS.get(currency_code, "₽")
 
         # 3) Parse amount
-        amount = _extract_amount(text)
+        amount = _extract_amount(text_lc)
         if amount is None:
             send_telegram(chat_id, f"Напиши сумму (Валюта: {currency_code})")
             self.send_response(200)
@@ -157,34 +172,43 @@ class handler(BaseHTTPRequestHandler):
             self.wfile.write(b"OK")
             return
 
-        # 4) Determine category + type
-        category = "Разное"
+        # 4) Determine income/expense & category
         record_type = "expense"
+        category = "Разное"
 
         income_words = ["зарплата", "зп", "аванс", "приход", "перевод", "кэшбэк", "доход", "salary", "deposit"]
-        if any(w in text for w in income_words):
+        if any(w in text_lc for w in income_words):
             record_type = "income"
             category = "Доход"
         else:
             for cat_name, keywords in EXPENSE_CATEGORIES.items():
-                if any(k in text for k in keywords):
+                if any(k in text_lc for k in keywords):
                     category = cat_name
                     break
 
-        # 5) Save to DB
-        data = {
-            "user_id": chat_id,
-            "amount": amount,
-            "category": category,
-            "description": str(text_raw) if text_raw else "Запись",
-            "type": record_type,
-        }
-        supabase.table("expenses").insert(data).execute()
+        # 5) Save record to DB
+        try:
+            data = {
+                "user_id": chat_id,
+                "amount": amount,
+                "category": category,
+                "description": str(text_raw) if text_raw else "Запись",
+                "type": record_type,
+            }
+            supabase.table("expenses").insert(data).execute()
+        except Exception as e:
+            print("Supabase insert ERROR:", e)
+            send_telegram(chat_id, "Ошибка при сохранении. Попробуй ещё раз.")
+            self.send_response(200)
+            self.end_headers()
+            self.wfile.write(b"OK")
+            return
 
+        # 6) Reply
         icon = "💰" if record_type == "income" else "💸"
         send_telegram(chat_id, f"{icon} {category}: {amount}{symbol}")
 
-        # 6) ACK Telegram
+        # 7) ACK Telegram
         self.send_response(200)
         self.end_headers()
         self.wfile.write(b"OK")
