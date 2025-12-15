@@ -7,14 +7,27 @@ from api.db import get_supabase
 from api.utils import send_ok, send_error
 
 
+MAX_RECORDS_FOR_CALC = 500  # safety cap
+
+
+def to_number(x) -> float:
+    try:
+        if isinstance(x, bool) or x is None:
+            return 0.0
+        if isinstance(x, (int, float)):
+            return float(x)
+        s = str(x).strip().replace(",", ".")
+        return float(s)
+    except Exception:
+        return 0.0
+
+
 class handler(BaseHTTPRequestHandler):
     def do_GET(self):
-        # 1) Auth: user_id ONLY from verified Telegram initData
         user_id = require_user_id(self)
         if user_id is None:
-            return  # 401 already sent
+            return
 
-        # 2) Query params (no user_id here!)
         query = parse_qs(urlparse(self.path).query)
         period = (query.get("period", ["all"])[0] or "all").lower()
         if period not in ("all", "day", "week", "month"):
@@ -23,7 +36,6 @@ class handler(BaseHTTPRequestHandler):
 
         supabase = get_supabase()
 
-        # 3) Currency from settings
         settings_res = (
             supabase.table("user_settings")
             .select("currency")
@@ -32,17 +44,17 @@ class handler(BaseHTTPRequestHandler):
         )
         currency = settings_res.data[0].get("currency") if settings_res.data else "RUB"
 
-        # 4) Expenses history (scoped by user_id)
+        # Pull limited recent records (better than fetching everything)
         all_data = (
             supabase.table("expenses")
             .select("*")
             .eq("user_id", user_id)
             .order("created_at", desc=True)
+            .limit(MAX_RECORDS_FOR_CALC)
             .execute()
         )
         records = all_data.data or []
 
-        # 5) Subscriptions (scoped by user_id)
         subs_res = (
             supabase.table("subscriptions")
             .select("*")
@@ -52,22 +64,8 @@ class handler(BaseHTTPRequestHandler):
         )
         subs_data = subs_res.data or []
 
-        # Helpers
-        def to_number(x):
-            try:
-                if isinstance(x, bool):
-                    return 0
-                if isinstance(x, (int, float)):
-                    return x
-                if x is None:
-                    return 0
-                s = str(x).strip().replace(",", ".")
-                return float(s) if "." in s else int(s)
-            except Exception:
-                return 0
-
-        # 6) Total balance
-        total_balance = 0
+        # Total balance (over fetched window; for full balance use DB aggregate)
+        total_balance = 0.0
         for item in records:
             amt = to_number(item.get("amount"))
             if item.get("type") == "income":
@@ -75,7 +73,6 @@ class handler(BaseHTTPRequestHandler):
             else:
                 total_balance -= amt
 
-        # 7) Period filter
         now = datetime.utcnow()
         start_date = None
         if period == "day":
@@ -96,20 +93,17 @@ class handler(BaseHTTPRequestHandler):
                 filtered_records.append(item)
                 continue
 
-            # tolerate "2025-01-01T12:00:00.000Z"
             rec_date_str = str(created_at).split(".")[0].replace("Z", "")
             try:
                 rec_date = datetime.fromisoformat(rec_date_str)
                 if rec_date >= start_date:
                     filtered_records.append(item)
             except Exception:
-                # If parsing fails, keep it (safer UX than dropping silently)
                 filtered_records.append(item)
 
-        # 8) Stats for chart + period totals
         stats = {}
-        period_income = 0
-        period_expense = 0
+        period_income = 0.0
+        period_expense = 0.0
 
         for item in filtered_records:
             amt = to_number(item.get("amount"))
@@ -118,13 +112,18 @@ class handler(BaseHTTPRequestHandler):
             else:
                 period_expense += amt
                 cat = item.get("category") or "Other"
-                stats[cat] = stats.get(cat, 0) + amt
+                stats[cat] = stats.get(cat, 0.0) + amt
+
+        # Optional: sort chart categories by spend desc
+        sorted_items = sorted(stats.items(), key=lambda kv: kv[1], reverse=True)
+        labels = [k for k, _ in sorted_items]
+        values = [v for _, v in sorted_items]
 
         response_data = {
             "currency": currency,
             "total_balance": total_balance,
             "period": {"income": period_income, "expense": period_expense},
-            "chart": {"labels": list(stats.keys()), "data": list(stats.values())},
+            "chart": {"labels": labels, "data": values},
             "history": filtered_records[:20],
             "subscriptions": subs_data,
         }
