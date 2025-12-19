@@ -1,168 +1,884 @@
 <!DOCTYPE html>
-<html>
+<html lang="ru">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>Финансы</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+    
     <style>
-        body { background-color: #0f172a; color: #e2e8f0; font-family: -apple-system, BlinkMacSystemFont, sans-serif; padding: 15px; margin: 0; padding-bottom: 90px; user-select: none; }
-        
-        /* Свайп-элементы (Новое!) */
-        .swipe-wrapper { position: relative; margin-bottom: 10px; border-radius: 16px; overflow: hidden; background-color: #ef4444; /* Красный фон снизу */ }
-        
-        .delete-layer { 
-            position: absolute; top: 0; right: 0; bottom: 0; width: 80px; 
-            display: flex; align-items: center; justify-content: center; 
-            color: white; font-size: 24px; cursor: pointer; z-index: 1;
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            -webkit-tap-highlight-color: transparent;
         }
 
-        .history-item { 
-            position: relative; 
-            background: #1e293b; 
-            padding: 15px; 
-            display: flex; justify-content: space-between; align-items: center;
-            z-index: 10; 
-            transition: transform 0.2s ease-out; /* Плавность */
+        :root {
+            --bg-primary: #0a0e1a;
+            --bg-secondary: #141829;
+            --bg-card: rgba(20, 24, 41, 0.6);
+            --glass-bg: rgba(255, 255, 255, 0.03);
+            --glass-border: rgba(255, 255, 255, 0.08);
+            
+            --text-primary: #ffffff;
+            --text-secondary: #94a3b8;
+            --text-muted: #64748b;
+            
+            --accent-green: #10b981;
+            --accent-red: #ef4444;
+            --accent-blue: #3b82f6;
+            --accent-purple: #8b5cf6;
+            
+            --gradient-green: linear-gradient(135deg, #10b981 0%, #059669 100%);
+            --gradient-red: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+            --gradient-blue: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+            --gradient-glow: linear-gradient(135deg, #14b8a6 0%, #06b6d4 50%, #3b82f6 100%);
+            
+            --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.1);
+            --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.2);
+            --shadow-lg: 0 8px 32px rgba(0, 0, 0, 0.3);
+            --shadow-glow: 0 0 30px rgba(20, 184, 166, 0.3);
         }
-        
-        /* Когда свайпнули, сдвигаем влево */
-        .history-item.swiped { transform: translateX(-80px); }
 
-        /* Остальные стили (сохранены) */
-        .tabs { position: fixed; bottom: 0; left: 0; width: 100%; background: #1e293b; display: flex; padding: 12px 0; border-top: 1px solid #334155; z-index: 100; padding-bottom: env(safe-area-inset-bottom); }
-        .tab-item { flex: 1; text-align: center; color: #64748b; cursor: pointer; font-size: 11px; }
-        .tab-item.active { color: #3b82f6; font-weight: bold; }
-        .tab-icon { font-size: 22px; display: block; margin-bottom: 2px; }
+        body {
+            background: var(--bg-primary);
+            background-image: 
+                radial-gradient(at 0% 0%, rgba(20, 184, 166, 0.08) 0px, transparent 50%),
+                radial-gradient(at 100% 0%, rgba(59, 130, 246, 0.06) 0px, transparent 50%),
+                radial-gradient(at 100% 100%, rgba(139, 92, 246, 0.05) 0px, transparent 50%);
+            color: var(--text-primary);
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+            padding-bottom: calc(85px + env(safe-area-inset-bottom));
+            min-height: 100vh;
+            overflow-x: hidden;
+            user-select: none;
+        }
 
-        .screen { display: none; }
-        .screen.active { display: block; }
+        /* Container */
+        .container {
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px 16px;
+        }
 
-        .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; }
-        .title { font-size: 20px; font-weight: 800; color: #fff; letter-spacing: -0.5px; }
-        select { background: #1e293b; color: white; border: 1px solid #334155; padding: 6px 12px; border-radius: 10px; outline: none; font-weight: 500;}
+        /* Glassmorphism Card */
+        .glass-card {
+            background: var(--glass-bg);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border: 1px solid var(--glass-border);
+            border-radius: 24px;
+            box-shadow: var(--shadow-lg);
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
 
-        .wallet-card { background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%); padding: 25px; border-radius: 20px; text-align: center; margin-bottom: 20px; box-shadow: 0 10px 25px -5px rgba(37, 99, 235, 0.4); }
-        .wallet-amount { font-size: 36px; font-weight: 800; color: white; margin-top: 5px; }
+        .glass-card:hover {
+            transform: translateY(-2px);
+            box-shadow: var(--shadow-lg), var(--shadow-glow);
+        }
 
-        .filters { display: flex; background: #1e293b; padding: 4px; border-radius: 14px; margin-bottom: 20px; }
-        .filter-btn { flex: 1; text-align: center; padding: 8px 0; font-size: 13px; color: #94a3b8; border-radius: 10px; cursor: pointer; font-weight: 500; }
-        .filter-btn.active { background: #334155; color: white; }
+        /* Header */
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 24px;
+            padding: 0 4px;
+        }
 
-        .period-stats { display: flex; gap: 12px; margin-bottom: 25px; }
-        .stat-card { flex: 1; background: #1e293b; padding: 15px; border-radius: 16px; }
-        .stat-val { font-size: 18px; font-weight: bold; margin-top: 4px; }
-        .green { color: #34d399; } .red { color: #f87171; }
+        .title {
+            font-family: 'Outfit', sans-serif;
+            font-size: 28px;
+            font-weight: 800;
+            background: var(--gradient-glow);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            letter-spacing: -0.5px;
+        }
 
-        .input-box { background: #1e293b; padding: 20px; border-radius: 20px; margin-bottom: 25px; }
-        .type-switch { display: flex; gap: 10px; margin-bottom: 15px; }
-        .type-btn { flex: 1; padding: 12px; text-align: center; background: #334155; border-radius: 12px; font-size: 14px; cursor: pointer; color: #94a3b8; transition: 0.2s; font-weight: 600; }
-        .type-btn.active-exp { background: #ef4444; color: white; }
-        .type-btn.active-inc { background: #10b981; color: white; }
+        .currency-selector {
+            position: relative;
+        }
 
-        input, select.full { width: 100%; padding: 14px; border-radius: 12px; border: 1px solid #334155; background: #0f172a; color: white; font-size: 16px; box-sizing: border-box; margin-bottom: 12px; outline: none; transition: 0.2s; }
-        input:focus { border-color: #3b82f6; }
-        
-        button.main-btn { width: 100%; padding: 14px; background: #ef4444; color: white; border: none; border-radius: 12px; font-weight: 700; cursor: pointer; font-size: 16px; transition: transform 0.1s; touch-action: manipulation; }
-        button.main-btn:active { transform: scale(0.98); }
+        .currency-select {
+            appearance: none;
+            background: var(--glass-bg);
+            backdrop-filter: blur(10px);
+            border: 1px solid var(--glass-border);
+            color: var(--text-primary);
+            padding: 10px 36px 10px 16px;
+            border-radius: 16px;
+            font-size: 14px;
+            font-weight: 600;
+            font-family: 'Outfit', sans-serif;
+            cursor: pointer;
+            outline: none;
+            transition: all 0.3s ease;
+        }
 
-        .sub-item { background: #1e293b; border-radius: 16px; padding: 15px; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center; border: 1px solid #334155; }
-        .export-btn { margin-top: 30px; text-align: center; padding: 15px; border: 1px dashed #334155; border-radius: 12px; color: #64748b; font-size: 14px; cursor: pointer; }
+        .currency-select:hover {
+            background: rgba(255, 255, 255, 0.06);
+            border-color: rgba(255, 255, 255, 0.12);
+        }
+
+        .currency-selector::after {
+            content: '▼';
+            position: absolute;
+            right: 14px;
+            top: 50%;
+            transform: translateY(-50%);
+            font-size: 10px;
+            color: var(--text-secondary);
+            pointer-events: none;
+        }
+
+        /* Balance Card */
+        .balance-card {
+            background: var(--gradient-glow);
+            border-radius: 32px;
+            padding: 32px 28px;
+            margin-bottom: 24px;
+            position: relative;
+            overflow: hidden;
+            box-shadow: var(--shadow-lg), 0 0 60px rgba(20, 184, 166, 0.25);
+            animation: glow-pulse 4s ease-in-out infinite;
+        }
+
+        @keyframes glow-pulse {
+            0%, 100% { box-shadow: var(--shadow-lg), 0 0 60px rgba(20, 184, 166, 0.25); }
+            50% { box-shadow: var(--shadow-lg), 0 0 80px rgba(20, 184, 166, 0.4); }
+        }
+
+        .balance-card::before {
+            content: '';
+            position: absolute;
+            top: -50%;
+            right: -50%;
+            width: 200%;
+            height: 200%;
+            background: radial-gradient(circle, rgba(255, 255, 255, 0.1) 0%, transparent 70%);
+            animation: rotate 20s linear infinite;
+        }
+
+        @keyframes rotate {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+
+        .balance-label {
+            font-size: 13px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 1.5px;
+            opacity: 0.9;
+            margin-bottom: 8px;
+            position: relative;
+            z-index: 1;
+        }
+
+        .balance-amount {
+            font-family: 'Outfit', sans-serif;
+            font-size: 48px;
+            font-weight: 800;
+            letter-spacing: -2px;
+            position: relative;
+            z-index: 1;
+            text-shadow: 0 2px 20px rgba(0, 0, 0, 0.2);
+        }
+
+        /* Filters */
+        .filters {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 20px;
+            padding: 6px;
+            background: var(--glass-bg);
+            backdrop-filter: blur(10px);
+            border: 1px solid var(--glass-border);
+            border-radius: 20px;
+        }
+
+        .filter-btn {
+            flex: 1;
+            padding: 12px 16px;
+            font-size: 13px;
+            font-weight: 600;
+            font-family: 'Outfit', sans-serif;
+            color: var(--text-secondary);
+            background: transparent;
+            border: none;
+            border-radius: 14px;
+            cursor: pointer;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .filter-btn::before {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background: var(--gradient-glow);
+            opacity: 0;
+            transition: opacity 0.3s ease;
+            border-radius: 14px;
+        }
+
+        .filter-btn.active {
+            color: white;
+        }
+
+        .filter-btn.active::before {
+            opacity: 1;
+        }
+
+        .filter-btn span {
+            position: relative;
+            z-index: 1;
+        }
+
+        /* Period Stats */
+        .period-stats {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+            margin-bottom: 24px;
+        }
+
+        .stat-card {
+            background: var(--glass-bg);
+            backdrop-filter: blur(20px);
+            border: 1px solid var(--glass-border);
+            border-radius: 20px;
+            padding: 20px;
+            transition: all 0.3s ease;
+        }
+
+        .stat-card:hover {
+            transform: translateY(-4px);
+            border-color: rgba(255, 255, 255, 0.15);
+        }
+
+        .stat-label {
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 8px;
+        }
+
+        .stat-value {
+            font-family: 'Outfit', sans-serif;
+            font-size: 26px;
+            font-weight: 700;
+            letter-spacing: -0.5px;
+        }
+
+        .stat-value.green {
+            color: var(--accent-green);
+            text-shadow: 0 0 20px rgba(16, 185, 129, 0.3);
+        }
+
+        .stat-value.red {
+            color: var(--accent-red);
+            text-shadow: 0 0 20px rgba(239, 68, 68, 0.3);
+        }
+
+        /* Input Box */
+        .input-box {
+            background: var(--glass-bg);
+            backdrop-filter: blur(20px);
+            border: 1px solid var(--glass-border);
+            border-radius: 24px;
+            padding: 24px;
+            margin-bottom: 28px;
+        }
+
+        .type-switch {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+            margin-bottom: 16px;
+            padding: 6px;
+            background: rgba(0, 0, 0, 0.2);
+            border-radius: 16px;
+        }
+
+        .type-btn {
+            padding: 14px;
+            font-size: 14px;
+            font-weight: 700;
+            font-family: 'Outfit', sans-serif;
+            border: none;
+            border-radius: 12px;
+            cursor: pointer;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            position: relative;
+            overflow: hidden;
+            color: var(--text-secondary);
+        }
+
+        .type-btn::before {
+            content: '';
+            position: absolute;
+            inset: 0;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+
+        .type-btn.active-exp::before {
+            background: var(--gradient-red);
+            opacity: 1;
+        }
+
+        .type-btn.active-inc::before {
+            background: var(--gradient-green);
+            opacity: 1;
+        }
+
+        .type-btn.active-exp,
+        .type-btn.active-inc {
+            color: white;
+            transform: scale(1.02);
+        }
+
+        .type-btn span {
+            position: relative;
+            z-index: 1;
+        }
+
+        .input-group {
+            position: relative;
+            margin-bottom: 14px;
+        }
+
+        .input-field {
+            width: 100%;
+            padding: 16px 18px;
+            background: rgba(0, 0, 0, 0.2);
+            border: 1px solid rgba(255, 255, 255, 0.06);
+            border-radius: 16px;
+            color: var(--text-primary);
+            font-size: 15px;
+            font-family: 'Inter', sans-serif;
+            outline: none;
+            transition: all 0.3s ease;
+        }
+
+        .input-field:focus {
+            background: rgba(0, 0, 0, 0.3);
+            border-color: rgba(59, 130, 246, 0.4);
+            box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.1);
+        }
+
+        .input-field::placeholder {
+            color: var(--text-muted);
+        }
+
+        .submit-btn {
+            width: 100%;
+            padding: 18px;
+            background: var(--gradient-red);
+            color: white;
+            border: none;
+            border-radius: 16px;
+            font-size: 16px;
+            font-weight: 700;
+            font-family: 'Outfit', sans-serif;
+            letter-spacing: 0.5px;
+            cursor: pointer;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            box-shadow: 0 8px 24px rgba(239, 68, 68, 0.3);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .submit-btn::before {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background: linear-gradient(135deg, rgba(255, 255, 255, 0.2) 0%, transparent 100%);
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+
+        .submit-btn:hover::before {
+            opacity: 1;
+        }
+
+        .submit-btn:active {
+            transform: scale(0.98);
+        }
+
+        /* Section Title */
+        .section-title {
+            font-family: 'Outfit', sans-serif;
+            font-size: 18px;
+            font-weight: 700;
+            color: var(--text-primary);
+            margin: 28px 0 12px 4px;
+            letter-spacing: -0.3px;
+        }
+
+        .section-subtitle {
+            font-size: 13px;
+            color: var(--text-muted);
+            margin: -8px 0 16px 4px;
+        }
+
+        /* History Item */
+        .swipe-wrapper {
+            position: relative;
+            margin-bottom: 10px;
+            border-radius: 20px;
+            overflow: hidden;
+        }
+
+        .delete-layer {
+            position: absolute;
+            top: 0;
+            right: 0;
+            bottom: 0;
+            width: 80px;
+            background: var(--gradient-red);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-size: 24px;
+            cursor: pointer;
+            z-index: 1;
+        }
+
+        .history-item {
+            position: relative;
+            background: var(--glass-bg);
+            backdrop-filter: blur(20px);
+            border: 1px solid var(--glass-border);
+            padding: 18px 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            z-index: 10;
+            transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            border-radius: 20px;
+        }
+
+        .history-item:hover {
+            border-color: rgba(255, 255, 255, 0.12);
+        }
+
+        .history-item.swiped {
+            transform: translateX(-80px);
+        }
+
+        .history-info {
+            flex: 1;
+        }
+
+        .history-desc {
+            font-weight: 600;
+            font-size: 15px;
+            margin-bottom: 6px;
+            color: var(--text-primary);
+        }
+
+        .history-meta {
+            font-size: 12px;
+            color: var(--text-muted);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .history-amount {
+            font-family: 'Outfit', sans-serif;
+            font-size: 18px;
+            font-weight: 700;
+            letter-spacing: -0.3px;
+        }
+
+        .history-amount.green {
+            color: var(--accent-green);
+        }
+
+        .history-amount.red {
+            color: var(--text-primary);
+        }
+
+        /* Subscription Item */
+        .sub-item {
+            background: var(--glass-bg);
+            backdrop-filter: blur(20px);
+            border: 1px solid var(--glass-border);
+            border-radius: 20px;
+            padding: 20px;
+            margin-bottom: 12px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            transition: all 0.3s ease;
+        }
+
+        .sub-item:hover {
+            border-color: rgba(255, 255, 255, 0.12);
+            transform: translateY(-2px);
+        }
+
+        .sub-info h4 {
+            font-size: 16px;
+            font-weight: 600;
+            margin-bottom: 6px;
+            color: var(--text-primary);
+        }
+
+        .sub-date {
+            font-size: 12px;
+            color: var(--text-muted);
+        }
+
+        .sub-actions {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+
+        .sub-amount {
+            font-family: 'Outfit', sans-serif;
+            font-size: 18px;
+            font-weight: 700;
+            color: var(--text-primary);
+        }
+
+        .sub-delete {
+            width: 36px;
+            height: 36px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: rgba(239, 68, 68, 0.1);
+            border-radius: 10px;
+            color: var(--accent-red);
+            font-size: 20px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .sub-delete:hover {
+            background: rgba(239, 68, 68, 0.2);
+            transform: scale(1.1);
+        }
+
+        /* Export Button */
+        .export-btn {
+            margin-top: 28px;
+            padding: 20px;
+            background: var(--glass-bg);
+            backdrop-filter: blur(20px);
+            border: 1px dashed var(--glass-border);
+            border-radius: 20px;
+            text-align: center;
+            color: var(--text-secondary);
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .export-btn:hover {
+            background: rgba(255, 255, 255, 0.05);
+            border-color: rgba(255, 255, 255, 0.15);
+            color: var(--text-primary);
+        }
+
+        /* Bottom Navigation */
+        .bottom-nav {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            background: rgba(10, 14, 26, 0.9);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border-top: 1px solid var(--glass-border);
+            padding: 12px 0;
+            padding-bottom: calc(12px + env(safe-area-inset-bottom));
+            z-index: 1000;
+        }
+
+        .nav-container {
+            max-width: 600px;
+            margin: 0 auto;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+            padding: 0 16px;
+        }
+
+        .nav-item {
+            padding: 12px;
+            border-radius: 16px;
+            text-align: center;
+            color: var(--text-muted);
+            cursor: pointer;
+            transition: all 0.3s ease;
+            background: transparent;
+            position: relative;
+        }
+
+        .nav-item::before {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background: var(--gradient-glow);
+            opacity: 0;
+            border-radius: 16px;
+            transition: opacity 0.3s ease;
+        }
+
+        .nav-item.active {
+            color: white;
+        }
+
+        .nav-item.active::before {
+            opacity: 0.15;
+        }
+
+        .nav-icon {
+            font-size: 24px;
+            display: block;
+            margin-bottom: 4px;
+            position: relative;
+            z-index: 1;
+        }
+
+        .nav-label {
+            font-size: 11px;
+            font-weight: 600;
+            font-family: 'Outfit', sans-serif;
+            letter-spacing: 0.3px;
+            position: relative;
+            z-index: 1;
+        }
+
+        /* Screen States */
+        .screen {
+            display: none;
+            animation: fadeIn 0.4s ease;
+        }
+
+        .screen.active {
+            display: block;
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(10px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        /* Empty State */
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+        }
+
+        .empty-state-icon {
+            font-size: 64px;
+            margin-bottom: 16px;
+            opacity: 0.3;
+        }
+
+        .empty-state-text {
+            font-size: 15px;
+            color: var(--text-muted);
+        }
+
+        /* Loading */
+        .loading {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid rgba(255, 255, 255, 0.1);
+            border-radius: 50%;
+            border-top-color: white;
+            animation: spin 0.8s linear infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        /* Scrollbar */
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: transparent;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 4px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: rgba(255, 255, 255, 0.15);
+        }
     </style>
 </head>
 <body>
-    
+    <!-- Wallet Screen -->
     <div id="screen-wallet" class="screen active">
-        <div class="header">
-            <div class="title">Мои Финансы</div>
-            <select id="currency-select" onchange="changeCurrency()">
-                <option value="RUB">RUB</option>
-                <option value="USD">USD</option>
-                <option value="EUR">EUR</option>
-            </select>
-        </div>
-
-        <div class="wallet-card">
-            <div style="font-size:13px; opacity:0.8; text-transform:uppercase; letter-spacing:1px">Общий баланс</div>
-            <div class="wallet-amount" id="total-balance">...</div>
-        </div>
-
-        <div class="filters">
-            <div class="filter-btn" onclick="setFilter('day', this)">День</div>
-            <div class="filter-btn" onclick="setFilter('week', this)">Неделя</div>
-            <div class="filter-btn active" onclick="setFilter('month', this)">Месяц</div>
-            <div class="filter-btn" onclick="setFilter('all', this)">Все</div>
-        </div>
-
-        <div class="period-stats">
-            <div class="stat-card">
-                <div style="font-size:12px; color:#94a3b8">Доход</div>
-                <div id="inc-val" class="stat-val green">0</div>
+        <div class="container">
+            <div class="header">
+                <div class="title">Финансы</div>
+                <div class="currency-selector">
+                    <select id="currency-select" class="currency-select" onchange="changeCurrency()">
+                        <option value="RUB">RUB ₽</option>
+                        <option value="USD">USD $</option>
+                        <option value="EUR">EUR €</option>
+                    </select>
+                </div>
             </div>
-            <div class="stat-card">
-                <div style="font-size:12px; color:#94a3b8">Расход</div>
-                <div id="exp-val" class="stat-val red">0</div>
-            </div>
-        </div>
 
-        <div class="input-box">
-            <div class="type-switch">
-                <div id="btn-exp" class="type-btn active-exp" onclick="setType('expense')">Расход</div>
-                <div id="btn-inc" class="type-btn" onclick="setType('income')">Доход</div>
+            <div class="balance-card">
+                <div class="balance-label">Общий баланс</div>
+                <div class="balance-amount" id="total-balance">
+                    <span class="loading"></span>
+                </div>
             </div>
-            <input type="date" id="date-picker">
-            <input type="text" id="expense" placeholder="Сумма и описание...">
-            <button class="main-btn" id="submit-btn" onclick="sendData()">ПОТРАТИЛ</button>
-        </div>
-        
-        <h3 style="color:#94a3b8; font-size:14px; margin-left:5px">История операций</h3>
-        <div style="color:#64748b; font-size:12px; margin-left:5px; margin-bottom:10px">Смахни влево, чтобы удалить ⬅️</div>
-        
-        <div id="history"></div>
 
-        <div class="export-btn" onclick="downloadReport()">
-            📥 Скачать отчет (Excel/CSV)
+            <div class="filters">
+                <button class="filter-btn" onclick="setFilter('day', this)">
+                    <span>День</span>
+                </button>
+                <button class="filter-btn" onclick="setFilter('week', this)">
+                    <span>Неделя</span>
+                </button>
+                <button class="filter-btn active" onclick="setFilter('month', this)">
+                    <span>Месяц</span>
+                </button>
+                <button class="filter-btn" onclick="setFilter('all', this)">
+                    <span>Все</span>
+                </button>
+            </div>
+
+            <div class="period-stats">
+                <div class="stat-card">
+                    <div class="stat-label">Доход</div>
+                    <div id="inc-val" class="stat-value green">0</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Расход</div>
+                    <div id="exp-val" class="stat-value red">0</div>
+                </div>
+            </div>
+
+            <div class="input-box">
+                <div class="type-switch">
+                    <button id="btn-exp" class="type-btn active-exp" onclick="setType('expense')">
+                        <span>💸 Расход</span>
+                    </button>
+                    <button id="btn-inc" class="type-btn" onclick="setType('income')">
+                        <span>💰 Доход</span>
+                    </button>
+                </div>
+                <div class="input-group">
+                    <input type="date" id="date-picker" class="input-field">
+                </div>
+                <div class="input-group">
+                    <input type="text" id="expense" class="input-field" placeholder="Сумма и описание...">
+                </div>
+                <button class="submit-btn" id="submit-btn" onclick="sendData()">ПОТРАТИЛ</button>
+            </div>
+
+            <div class="section-title">История операций</div>
+            <div class="section-subtitle">Смахни влево, чтобы удалить ⬅️</div>
+
+            <div id="history"></div>
+
+            <div class="export-btn" onclick="downloadReport()">
+                📥 Скачать отчет (CSV)
+            </div>
         </div>
     </div>
 
+    <!-- Subscriptions Screen -->
     <div id="screen-subs" class="screen">
-        <div class="header"><div class="title">Подписки</div></div>
+        <div class="container">
+            <div class="header">
+                <div class="title">Подписки</div>
+            </div>
 
-        <div class="input-box">
-            <input type="text" id="sub-name" placeholder="Название (Netflix)">
-            <input type="number" id="sub-amount" placeholder="Сумма (19)">
-            <div style="color:#94a3b8; font-size:12px; margin-bottom:8px">Дата следующей оплаты:</div>
-            <input type="date" id="sub-date">
-            <select id="sub-period" class="full">
-                <option value="month">Каждый месяц</option>
-                <option value="year">Каждый год</option>
-            </select>
-            <button class="main-btn" style="background:#3b82f6" onclick="addSub()">ДОБАВИТЬ</button>
+            <div class="input-box">
+                <div class="input-group">
+                    <input type="text" id="sub-name" class="input-field" placeholder="Название (Netflix)">
+                </div>
+                <div class="input-group">
+                    <input type="number" id="sub-amount" class="input-field" placeholder="Сумма (19)">
+                </div>
+                <div class="input-group">
+                    <div style="font-size: 12px; color: var(--text-muted); margin-bottom: 8px; padding-left: 4px;">
+                        Дата следующей оплаты:
+                    </div>
+                    <input type="date" id="sub-date" class="input-field">
+                </div>
+                <div class="input-group">
+                    <select id="sub-period" class="input-field">
+                        <option value="monthly">Каждый месяц</option>
+                        <option value="yearly">Каждый год</option>
+                        <option value="weekly">Каждую неделю</option>
+                    </select>
+                </div>
+                <button class="submit-btn" style="background: var(--gradient-blue); box-shadow: 0 8px 24px rgba(59, 130, 246, 0.3);" onclick="addSub()">
+                    ДОБАВИТЬ
+                </button>
+            </div>
+
+            <div class="section-title">Активные подписки</div>
+            <div id="subs-list"></div>
         </div>
-
-        <div id="subs-list"></div>
     </div>
 
-    <div class="tabs">
-        <div class="tab-item active" onclick="switchTab('wallet', this)">
-            <span class="tab-icon">💳</span>Кошелек
-        </div>
-        <div class="tab-item" onclick="switchTab('subs', this)">
-            <span class="tab-icon">🔔</span>Подписки
+    <!-- Bottom Navigation -->
+    <div class="bottom-nav">
+        <div class="nav-container">
+            <div class="nav-item active" onclick="switchTab('wallet', this)">
+                <span class="nav-icon">💳</span>
+                <span class="nav-label">Кошелек</span>
+            </div>
+            <div class="nav-item" onclick="switchTab('subs', this)">
+                <span class="nav-icon">🔔</span>
+                <span class="nav-label">Подписки</span>
+            </div>
         </div>
     </div>
 
     <script>
         const tg = window.Telegram?.WebApp;
 
-        // Если открыт не внутри Telegram — покажем сообщение (иначе всё будет 401)
         if (!tg) {
             alert("Открой это приложение внутри Telegram");
         } else {
             tg.expand?.();
+            tg.setHeaderColor?.('#0a0e1a');
+            tg.setBackgroundColor?.('#0a0e1a');
         }
 
-        // Глобальный ловец JS ошибок — вместо "пустого экрана"
         window.addEventListener("error", (e) => {
             console.error("JS ERROR:", e?.error || e?.message || e);
             alert("Ошибка в приложении: " + (e?.message || "см. console"));
@@ -176,7 +892,6 @@
         document.getElementById('sub-date').valueAsDate = new Date();
         document.getElementById('date-picker').valueAsDate = new Date();
 
-        // ===== AUTH + FETCH WRAPPER =====
         function tgInitData() {
             return tg?.initData || "";
         }
@@ -204,9 +919,7 @@
             }
             return parsed;
         }
-        // ===== END WRAPPER =====
 
-        // --- ЛОГИКА СВАЙПА ---
         let touchStartX = 0;
         let touchEndX = 0;
 
@@ -232,7 +945,6 @@
                 element.classList.remove('swiped');
             }
         }
-        // -----------------------------
 
         function setType(type) {
             currentType = type;
@@ -240,25 +952,29 @@
             document.getElementById('btn-inc').className = `type-btn ${type === 'income' ? 'active-inc' : ''}`;
             const btn = document.getElementById('submit-btn');
             if (type === 'income') {
-                btn.style.background = '#10b981';
-                btn.innerText = 'ЗАРАБОТАЛ!';
+                btn.style.background = 'var(--gradient-green)';
+                btn.style.boxShadow = '0 8px 24px rgba(16, 185, 129, 0.3)';
+                btn.innerHTML = '💰 ЗАРАБОТАЛ';
             } else {
-                btn.style.background = '#ef4444';
-                btn.innerText = 'ПОТРАТИЛ';
+                btn.style.background = 'var(--gradient-red)';
+                btn.style.boxShadow = '0 8px 24px rgba(239, 68, 68, 0.3)';
+                btn.innerHTML = '💸 ПОТРАТИЛ';
             }
         }
 
         function switchTab(screenName, btn) {
             document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
-            document.querySelectorAll('.tab-item').forEach(b => b.classList.remove('active'));
+            document.querySelectorAll('.nav-item').forEach(b => b.classList.remove('active'));
             document.getElementById(`screen-${screenName}`).classList.add('active');
             btn.classList.add('active');
+            
+            tg?.HapticFeedback?.impactOccurred?.('soft');
         }
 
         async function loadStats() {
             try {
                 const res = await tgFetch(`/api/stats?period=${currentPeriod}`, { method: "GET" });
-                const data = res?.data || res; // на всякий случай
+                const data = res?.data || res;
 
                 currentCurrency = data.currency || "RUB";
                 document.getElementById('currency-select').value = currentCurrency;
@@ -272,50 +988,78 @@
                 list.innerHTML = "";
 
                 const history = data.history || [];
-                history.forEach(item => {
-                    const color = item.type === 'income' ? '#10b981' : '#e2e8f0';
-                    const sign = item.type === 'income' ? '+' : '-';
-                    const dateObj = new Date(item.created_at);
-                    const dateStr = dateObj.toLocaleDateString('ru-RU', {day:'numeric', month:'short'});
-
-                    const wrapper = document.createElement('div');
-                    wrapper.className = 'swipe-wrapper';
-
-                    wrapper.innerHTML = `
-                        <div class="delete-layer" onclick="deleteItem(${item.id})">🗑</div>
-                        <div class="history-item">
-                            <div>
-                                <div style="font-weight:600; font-size:15px">${item.description}</div>
-                                <div style="font-size:12px; color:#64748b; margin-top:2px">${dateStr} • ${item.category}</div>
-                            </div>
-                            <div style="color:${color}; font-weight:700; font-size:16px">${sign}${item.amount} ${sym}</div>
+                
+                if (history.length === 0) {
+                    list.innerHTML = `
+                        <div class="empty-state">
+                            <div class="empty-state-icon">📊</div>
+                            <div class="empty-state-text">Здесь будет история твоих операций</div>
                         </div>
                     `;
+                } else {
+                    history.forEach(item => {
+                        const isIncome = item.type === 'income';
+                        const color = isIncome ? 'green' : 'red';
+                        const sign = isIncome ? '+' : '-';
+                        const dateObj = new Date(item.created_at);
+                        const dateStr = dateObj.toLocaleDateString('ru-RU', {day:'numeric', month:'short'});
 
-                    const itemDiv = wrapper.querySelector('.history-item');
-                    addSwipeLogic(itemDiv);
+                        const wrapper = document.createElement('div');
+                        wrapper.className = 'swipe-wrapper';
 
-                    list.appendChild(wrapper);
-                });
+                        wrapper.innerHTML = `
+                            <div class="delete-layer" onclick="deleteItem(${item.id})">🗑</div>
+                            <div class="history-item">
+                                <div class="history-info">
+                                    <div class="history-desc">${item.description}</div>
+                                    <div class="history-meta">
+                                        <span>${dateStr}</span>
+                                        <span>•</span>
+                                        <span>${item.category}</span>
+                                    </div>
+                                </div>
+                                <div class="history-amount ${color}">${sign}${item.amount} ${sym}</div>
+                            </div>
+                        `;
+
+                        const itemDiv = wrapper.querySelector('.history-item');
+                        addSwipeLogic(itemDiv);
+
+                        list.appendChild(wrapper);
+                    });
+                }
 
                 const subList = document.getElementById('subs-list');
                 subList.innerHTML = "";
                 const subs = data.subscriptions || [];
-                subs.forEach(sub => {
-                    const dateObj = new Date(sub.next_date);
-                    const dateStr = dateObj.toLocaleDateString('ru-RU');
-                    subList.innerHTML += `
-                        <div class="sub-item">
-                            <div>
-                                <div style="font-weight:bold">${sub.name}</div>
-                                <div style="font-size:12px; color:#94a3b8">Сл. оплата: ${dateStr}</div>
+                
+                if (subs.length === 0) {
+                    subList.innerHTML = `
+                        <div class="empty-state">
+                            <div class="empty-state-icon">🔔</div>
+                            <div class="empty-state-text">У тебя пока нет подписок</div>
+                        </div>
+                    `;
+                } else {
+                    subs.forEach(sub => {
+                        const dateObj = new Date(sub.next_date);
+                        const dateStr = dateObj.toLocaleDateString('ru-RU');
+                        
+                        const item = document.createElement('div');
+                        item.className = 'sub-item';
+                        item.innerHTML = `
+                            <div class="sub-info">
+                                <h4>${sub.name}</h4>
+                                <div class="sub-date">След. оплата: ${dateStr}</div>
                             </div>
-                            <div style="display:flex; align-items:center">
-                                <div style="font-weight:bold; margin-right:10px">${sub.amount} ${sub.currency}</div>
-                                <div onclick="delSub(${sub.id})" style="color:#ef4444; font-size:24px; cursor:pointer">×</div>
+                            <div class="sub-actions">
+                                <div class="sub-amount">${sub.amount} ${sub.currency}</div>
+                                <div class="sub-delete" onclick="delSub(${sub.id})">×</div>
                             </div>
-                        </div>`;
-                });
+                        `;
+                        subList.appendChild(item);
+                    });
+                }
 
             } catch (e) {
                 console.error(e);
@@ -326,13 +1070,15 @@
         async function sendData() {
             const input = document.getElementById('expense');
             const dateInput = document.getElementById('date-picker');
-            if(!input.value) return;
+            if(!input.value) {
+                tg?.HapticFeedback?.notificationOccurred?.('error');
+                return;
+            }
 
-            // iPhone: первый тап часто закрывает клавиатуру вместо клика
             input.blur();
             dateInput.blur();
 
-            tg?.HapticFeedback?.impactOccurred?.('light');
+            tg?.HapticFeedback?.impactOccurred?.('medium');
 
             try {
                 await tgFetch('/api/index', {
@@ -345,9 +1091,11 @@
                 });
 
                 input.value = "";
+                tg?.HapticFeedback?.notificationOccurred?.('success');
                 await loadStats();
             } catch (e) {
                 console.error(e);
+                tg?.HapticFeedback?.notificationOccurred?.('error');
                 alert("Ошибка добавления: " + (e?.message || e));
             }
         }
@@ -356,11 +1104,13 @@
             currentPeriod = p; 
             document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
             el.classList.add('active'); 
+            tg?.HapticFeedback?.selectionChanged?.();
             loadStats(); 
         }
         
         async function changeCurrency() {
             const s = document.getElementById('currency-select');
+            tg?.HapticFeedback?.selectionChanged?.();
             try {
                 await tgFetch('/api/settings', {
                     method: 'POST',
@@ -378,7 +1128,11 @@
             const amount = document.getElementById('sub-amount').value;
             const date = document.getElementById('sub-date').value;
             const period = document.getElementById('sub-period').value;
-            if(!name || !amount) return;
+            
+            if(!name || !amount) {
+                tg?.HapticFeedback?.notificationOccurred?.('error');
+                return;
+            }
 
             try {
                 await tgFetch('/api/subs', {
@@ -399,35 +1153,45 @@
                 loadStats();
             } catch (e) {
                 console.error(e);
+                tg?.HapticFeedback?.notificationOccurred?.('error');
                 alert("Ошибка подписки: " + (e?.message || e));
             }
         }
 
         async function delSub(id) {
             if(!confirm("Удалить подписку?")) return;
+            
+            tg?.HapticFeedback?.impactOccurred?.('heavy');
+            
             try {
                 await tgFetch('/api/subs', {
                     method: 'POST',
                     body: JSON.stringify({ action: 'delete', id: id })
                 });
+                tg?.HapticFeedback?.notificationOccurred?.('success');
                 loadStats();
             } catch (e) {
                 console.error(e);
+                tg?.HapticFeedback?.notificationOccurred?.('error');
                 alert("Ошибка удаления подписки: " + (e?.message || e));
             }
         }
 
         async function deleteItem(id) {
             if(!confirm("Удалить эту запись?")) return;
-            tg?.HapticFeedback?.notificationOccurred?.('error');
+            
+            tg?.HapticFeedback?.impactOccurred?.('heavy');
+            
             try {
                 await tgFetch('/api/delete', {
                     method: 'POST',
                     body: JSON.stringify({ id: id })
                 });
+                tg?.HapticFeedback?.notificationOccurred?.('success');
                 loadStats();
             } catch (e) {
                 console.error(e);
+                tg?.HapticFeedback?.notificationOccurred?.('error');
                 alert("Ошибка удаления: " + (e?.message || e));
             }
         }
@@ -440,6 +1204,8 @@
                     return;
                 }
 
+                tg?.HapticFeedback?.impactOccurred?.('medium');
+
                 const res = await fetch('/api/export', {
                     method: "GET",
                     headers: { "X-Tg-Init-Data": initData }
@@ -448,6 +1214,7 @@
                 if (!res.ok) {
                     const t = await res.text();
                     console.error("Export error", res.status, t);
+                    tg?.HapticFeedback?.notificationOccurred?.('error');
                     alert("Не удалось скачать отчет");
                     return;
                 }
@@ -463,13 +1230,14 @@
                 a.remove();
 
                 URL.revokeObjectURL(url);
+                tg?.HapticFeedback?.notificationOccurred?.('success');
             } catch (e) {
                 console.error(e);
+                tg?.HapticFeedback?.notificationOccurred?.('error');
                 alert("Ошибка отчета: " + (e?.message || e));
             }
         }
 
-        // Старт
         loadStats();
     </script>
 </body>
