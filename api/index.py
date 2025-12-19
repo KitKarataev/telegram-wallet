@@ -1,3 +1,4 @@
+from api.logger import log_event
 from api.rate_limiter import check_rate_limit
 from http.server import BaseHTTPRequestHandler
 from datetime import datetime
@@ -92,5 +93,12 @@ class handler(BaseHTTPRequestHandler):
         # ИЗМЕНЕНО: используем RLS-клиент
         supabase = get_supabase_for_user(user_id)
         supabase.table("expenses").insert(data).execute()
+
+        # Логируем успешное создание записи
+log_event("expense_created", user_id, {
+    "amount": amount,
+    "category": category,
+    "type": record_type
+})
 
         send_ok(self, {"message": "Saved", "category": category, "type": record_type, "amount": amount})
