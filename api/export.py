@@ -3,7 +3,7 @@ import csv
 import io
 
 from api.auth import require_user_id
-from api.db import get_supabase
+from api.db import get_supabase_for_user
 
 
 def _to_number(x):
