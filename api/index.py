@@ -114,6 +114,11 @@ class handler(BaseHTTPRequestHandler):
         supabase = get_supabase_for_user(user_id)
         try:
             res = supabase.table("expenses").insert(data).execute()
+            if not res.data:
+                log_event("expense_create_failed", user_id, {"error": "Empty response"})
+                send_error(self, 500, "Failed to save expense")
+                return
+                
         except Exception as e:
             # Логируем неудачную попытку создания записи и возвращаем 500
             log_event("expense_create_failed", user_id, {"error": str(e), "data": data})
