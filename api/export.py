@@ -27,7 +27,7 @@ class handler(BaseHTTPRequestHandler):
         if user_id is None:
             return  # 401 already sent by auth.py
 
-        supabase = get_supabase()
+        supabase = get_supabase_for_user(user_id)
 
         # 2) Fetch data (scoped by user_id)
         expenses_res = (
