@@ -334,6 +334,58 @@
             z-index: 1;
         }
 
+        /* НОВЫЕ СТИЛИ ДЛЯ КНОПКИ ЧЕКА */
+        .receipt-btn {
+            width: 100%;
+            padding: 16px 20px;
+            background: var(--glass-bg);
+            backdrop-filter: blur(20px);
+            border: 1px dashed var(--glass-border);
+            border-radius: 16px;
+            color: var(--text-primary);
+            font-size: 15px;
+            font-weight: 600;
+            font-family: 'Outfit', sans-serif;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .receipt-btn::before {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background: linear-gradient(135deg, rgba(139, 92, 246, 0.1) 0%, rgba(59, 130, 246, 0.1) 100%);
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+
+        .receipt-btn:hover::before {
+            opacity: 1;
+        }
+
+        .receipt-btn:hover {
+            border-color: rgba(139, 92, 246, 0.3);
+            transform: translateY(-2px);
+            box-shadow: 0 4px 16px rgba(139, 92, 246, 0.2);
+        }
+
+        .receipt-icon {
+            font-size: 20px;
+            position: relative;
+            z-index: 1;
+        }
+
+        .receipt-text {
+            position: relative;
+            z-index: 1;
+        }
+
         .input-group {
             position: relative;
             margin-bottom: 14px;
@@ -989,6 +1041,16 @@
                         <span>💰 Доход</span>
                     </button>
                 </div>
+
+                <!-- НОВАЯ КНОПКА ДЛЯ ФОТО ЧЕКА -->
+                <div style="margin-bottom: 16px;">
+                    <input type="file" id="receipt-input" accept="image/*" capture="environment" style="display: none;">
+                    <button class="receipt-btn" onclick="openCamera()">
+                        <span class="receipt-icon">📸</span>
+                        <span class="receipt-text">Сфотографировать чек</span>
+                    </button>
+                </div>
+
                 <div class="input-group">
                     <input type="date" id="date-picker" class="input-field">
                 </div>
