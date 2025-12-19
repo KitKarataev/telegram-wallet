@@ -112,21 +112,31 @@ def _deepseek_url() -> str:
 
 def _extract_json_object(s: str) -> dict | None:
     """
-    Пытаемся вытащить первый JSON-объект из строки (если модель обрамила текстом).
+    Улучшенное извлечение JSON с несколькими стратегиями
     """
     if not s:
         return None
     s = s.strip()
 
-    # если это уже чистый json
-    try:
-        obj = json.loads(s)
-        return obj if isinstance(obj, dict) else None
-    except Exception:
-        pass
+    # Стратегия 1: Прямой парсинг
+    if s.startswith('{') and s.endswith('}'):
+        try:
+            obj = json.loads(s)
+            return obj if isinstance(obj, dict) else None
+        except Exception:
+            pass
 
-    # ищем первый {...}
-    m = re.search(r"\{[\s\S]*\}", s)
+    # Стратегия 2: Извлечь из ```json блоков
+    json_block = re.search(r'```json\s*(\{[\s\S]*?\})\s*```', s)
+    if json_block:
+        try:
+            obj = json.loads(json_block.group(1))
+            return obj if isinstance(obj, dict) else None
+        except Exception:
+            pass
+
+    # Стратегия 3: Найти первый полный JSON объект
+    m = re.search(r'\{[\s\S]*\}', s)
     if not m:
         return None
     try:
