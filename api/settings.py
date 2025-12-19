@@ -30,7 +30,7 @@ class handler(BaseHTTPRequestHandler):
             send_error(self, 400, f"Invalid currency. Allowed: {sorted(ALLOWED_CURRENCIES)}")
             return
 
-        supabase = get_supabase()
+        supabase = get_supabase_for_user(user_id)
 
         # 3) Upsert setting (scoped by user_id)
         data = {
