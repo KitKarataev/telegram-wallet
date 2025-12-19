@@ -6,7 +6,7 @@ import json
 import re
 import requests
 
-from api.db import get_supabase
+from api.db import get_supabase_admin
 from api.utils import read_json
 
 
@@ -244,7 +244,7 @@ class handler(BaseHTTPRequestHandler):
         if not str(text_raw).strip():
             self.send_response(200); self.end_headers(); self.wfile.write(b"OK"); return
 
-        supabase = get_supabase()
+        supabase = get_supabase_admin()
 
         # Currency
         currency_code = "RUB"
