@@ -372,7 +372,7 @@
             transition: all 0.3s ease;
         }
 
-        /* ИСПРАВЛЕНИЕ: Date picker стили для iOS */
+        /* Date picker стили для iOS */
         input[type="date"].input-field {
             position: relative;
             -webkit-appearance: none;
@@ -457,37 +457,58 @@
             margin: -8px 0 16px 4px;
         }
 
-        /* iOS-STYLE SWIPE TO DELETE */
+        /* iOS-STYLE SWIPE TO DELETE - УЛУЧШЕННАЯ ВЕРСИЯ */
         .swipe-container {
             position: relative;
             margin-bottom: 10px;
-            overflow: hidden;
-            border-radius: 20px;
+            overflow: visible; /* ВАЖНО: чтобы тень была видна */
         }
 
-        .swipe-actions {
+        .swipe-background {
             position: absolute;
             top: 0;
             right: 0;
             bottom: 0;
-            display: flex;
-            align-items: stretch;
-        }
-
-        .swipe-delete {
-            width: 80px;
-            background: var(--gradient-red);
+            width: 90px;
             display: flex;
             align-items: center;
             justify-content: center;
-            color: white;
-            font-size: 22px;
-            cursor: pointer;
+            border-radius: 20px;
+            opacity: 0;
+            transform: scale(0.8);
             transition: all 0.2s ease;
+            pointer-events: none;
         }
 
-        .swipe-delete:active {
-            background: linear-gradient(135deg, #dc2626 0%, #b91c1c 100%);
+        .swipe-background.visible {
+            opacity: 1;
+            transform: scale(1);
+            pointer-events: auto;
+        }
+
+        .delete-btn {
+            width: 60px;
+            height: 60px;
+            border-radius: 50%;
+            background: var(--glass-bg);
+            backdrop-filter: blur(20px);
+            border: 1px solid var(--glass-border);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            font-size: 24px;
+        }
+
+        .delete-btn:hover {
+            transform: scale(1.1);
+            background: rgba(255, 255, 255, 0.08);
+            border-color: rgba(255, 255, 255, 0.15);
+        }
+
+        .delete-btn:active {
+            transform: scale(0.95);
         }
 
         .history-item {
@@ -499,23 +520,30 @@
             display: flex;
             justify-content: space-between;
             align-items: center;
-            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
             border-radius: 20px;
             touch-action: pan-y;
             user-select: none;
+            box-shadow: var(--shadow-md);
+            z-index: 2;
         }
 
         .history-item:hover {
             border-color: rgba(255, 255, 255, 0.12);
         }
 
-        /* Анимация свайпа */
+        /* Состояния свайпа */
         .history-item.swiping {
             transition: none;
+            box-shadow: var(--shadow-lg);
         }
 
         .history-item.snap-back {
-            transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+                        box-shadow 0.3s ease;
+        }
+
+        .history-item.swiped-open {
+            box-shadow: var(--shadow-lg);
         }
 
         .history-info {
@@ -961,15 +989,19 @@
             return parsed;
         }
 
-        // ========== iOS-STYLE SWIPE TO DELETE ==========
+        // ========== iOS-STYLE SWIPE TO DELETE - ПОЛНОСТЬЮ ПЕРЕПИСАН ==========
         class SwipeHandler {
-            constructor(element, onDelete) {
-                this.element = element;
+            constructor(container, itemElement, backgroundElement, onDelete) {
+                this.container = container;
+                this.element = itemElement;
+                this.background = backgroundElement;
                 this.onDelete = onDelete;
                 this.startX = 0;
                 this.currentX = 0;
                 this.isDragging = false;
-                this.threshold = 80; // Порог для автоматического удаления
+                this.isOpen = false;
+                this.threshold = 80; // Минимальный свайп для открытия
+                this.maxSwipe = 90; // Максимальное смещение
 
                 this.element.addEventListener('touchstart', this.handleTouchStart.bind(this), { passive: true });
                 this.element.addEventListener('touchmove', this.handleTouchMove.bind(this), { passive: false });
@@ -992,8 +1024,14 @@
                 // Разрешаем свайп только влево
                 if (diff > 0) {
                     e.preventDefault();
-                    const translateX = -Math.min(diff, this.threshold);
+                    const translateX = -Math.min(diff, this.maxSwipe);
                     this.element.style.transform = `translateX(${translateX}px)`;
+                    
+                    // Показываем фон когда начинаем свайпать
+                    if (Math.abs(translateX) > 10 && !this.background.classList.contains('visible')) {
+                        this.background.classList.add('visible');
+                        tg?.HapticFeedback?.impactOccurred?.('light');
+                    }
                 }
             }
 
@@ -1007,16 +1045,11 @@
                 const diff = this.startX - this.currentX;
 
                 if (diff > this.threshold) {
-                    // Свайп достаточно сильный - удаляем
-                    this.element.style.transform = `translateX(-${this.threshold}px)`;
-                    tg?.HapticFeedback?.notificationOccurred?.('warning');
-                    
-                    setTimeout(() => {
-                        this.onDelete();
-                    }, 300);
+                    // Открываем свайп - кнопка остается видимой
+                    this.open();
                 } else {
-                    // Возвращаем на место
-                    this.element.style.transform = 'translateX(0)';
+                    // Закрываем
+                    this.close();
                 }
 
                 setTimeout(() => {
@@ -1024,17 +1057,40 @@
                 }, 300);
             }
 
-            reset() {
+            open() {
+                this.isOpen = true;
+                this.element.style.transform = `translateX(-${this.maxSwipe}px)`;
+                this.element.classList.add('swiped-open');
+                this.background.classList.add('visible');
+                tg?.HapticFeedback?.impactOccurred?.('medium');
+            }
+
+            close() {
+                this.isOpen = false;
                 this.element.style.transform = 'translateX(0)';
-                this.element.classList.remove('swiping', 'snap-back');
+                this.element.classList.remove('swiped-open');
+                this.background.classList.remove('visible');
+            }
+
+            reset() {
+                this.close();
             }
         }
 
         const swipeHandlers = [];
 
-        function resetAllSwipes() {
-            swipeHandlers.forEach(handler => handler.reset());
+        function closeAllSwipes() {
+            swipeHandlers.forEach(handler => handler.close());
         }
+
+        // Закрываем все свайпы при скролле
+        let scrollTimeout;
+        window.addEventListener('scroll', () => {
+            clearTimeout(scrollTimeout);
+            scrollTimeout = setTimeout(() => {
+                closeAllSwipes();
+            }, 100);
+        }, { passive: true });
 
         // ========== ENTER KEY HANDLING ==========
         function handleEnterKey(event) {
@@ -1077,6 +1133,7 @@
             document.getElementById(`screen-${screenName}`).classList.add('active');
             btn.classList.add('active');
             
+            closeAllSwipes();
             tg?.HapticFeedback?.impactOccurred?.('soft');
         }
 
@@ -1118,8 +1175,8 @@
                         container.className = 'swipe-container';
 
                         container.innerHTML = `
-                            <div class="swipe-actions">
-                                <div class="swipe-delete" onclick="deleteItem(${item.id})">🗑</div>
+                            <div class="swipe-background">
+                                <div class="delete-btn" onclick="handleDeleteClick(${item.id})">🗑️</div>
                             </div>
                             <div class="history-item">
                                 <div class="history-info">
@@ -1135,7 +1192,8 @@
                         `;
 
                         const historyItem = container.querySelector('.history-item');
-                        const handler = new SwipeHandler(historyItem, () => deleteItem(item.id));
+                        const background = container.querySelector('.swipe-background');
+                        const handler = new SwipeHandler(container, historyItem, background, () => deleteItem(item.id));
                         swipeHandlers.push(handler);
 
                         list.appendChild(container);
@@ -1217,6 +1275,7 @@
             currentPeriod = p; 
             document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
             el.classList.add('active'); 
+            closeAllSwipes();
             tg?.HapticFeedback?.selectionChanged?.();
             loadStats(); 
         }
@@ -1290,11 +1349,13 @@
             }
         }
 
-        async function deleteItem(id) {
-            resetAllSwipes();
-            
+        // Обработчик клика по кнопке удаления
+        function handleDeleteClick(id) {
             tg?.HapticFeedback?.impactOccurred?.('heavy');
-            
+            deleteItem(id);
+        }
+
+        async function deleteItem(id) {
             try {
                 await tgFetch('/api/delete', {
                     method: 'POST',
