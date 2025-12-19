@@ -372,6 +372,30 @@
             transition: all 0.3s ease;
         }
 
+        /* ИСПРАВЛЕНИЕ: Date picker стили для iOS */
+        input[type="date"].input-field {
+            position: relative;
+            -webkit-appearance: none;
+            -moz-appearance: none;
+            appearance: none;
+            min-height: 50px;
+        }
+
+        input[type="date"].input-field::-webkit-calendar-picker-indicator {
+            position: absolute;
+            right: 10px;
+            top: 50%;
+            transform: translateY(-50%);
+            cursor: pointer;
+            filter: invert(0.6);
+            width: 20px;
+            height: 20px;
+        }
+
+        input[type="date"].input-field::-webkit-date-and-time-value {
+            text-align: left;
+        }
+
         .input-field:focus {
             background: rgba(0, 0, 0, 0.3);
             border-color: rgba(59, 130, 246, 0.4);
@@ -433,28 +457,37 @@
             margin: -8px 0 16px 4px;
         }
 
-        /* History Item */
-        .swipe-wrapper {
+        /* iOS-STYLE SWIPE TO DELETE */
+        .swipe-container {
             position: relative;
             margin-bottom: 10px;
-            border-radius: 20px;
             overflow: hidden;
+            border-radius: 20px;
         }
 
-        .delete-layer {
+        .swipe-actions {
             position: absolute;
             top: 0;
             right: 0;
             bottom: 0;
+            display: flex;
+            align-items: stretch;
+        }
+
+        .swipe-delete {
             width: 80px;
             background: var(--gradient-red);
             display: flex;
             align-items: center;
             justify-content: center;
             color: white;
-            font-size: 24px;
+            font-size: 22px;
             cursor: pointer;
-            z-index: 1;
+            transition: all 0.2s ease;
+        }
+
+        .swipe-delete:active {
+            background: linear-gradient(135deg, #dc2626 0%, #b91c1c 100%);
         }
 
         .history-item {
@@ -466,21 +499,28 @@
             display: flex;
             justify-content: space-between;
             align-items: center;
-            z-index: 10;
-            transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
             border-radius: 20px;
+            touch-action: pan-y;
+            user-select: none;
         }
 
         .history-item:hover {
             border-color: rgba(255, 255, 255, 0.12);
         }
 
-        .history-item.swiped {
-            transform: translateX(-80px);
+        /* Анимация свайпа */
+        .history-item.swiping {
+            transition: none;
+        }
+
+        .history-item.snap-back {
+            transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
         }
 
         .history-info {
             flex: 1;
+            pointer-events: none;
         }
 
         .history-desc {
@@ -503,6 +543,7 @@
             font-size: 18px;
             font-weight: 700;
             letter-spacing: -0.3px;
+            pointer-events: none;
         }
 
         .history-amount.green {
@@ -801,9 +842,9 @@
                     <input type="date" id="date-picker" class="input-field">
                 </div>
                 <div class="input-group">
-                    <input type="text" id="expense" class="input-field" placeholder="Сумма и описание...">
+                    <input type="text" id="expense" class="input-field" placeholder="Сумма и описание..." onkeypress="handleEnterKey(event)">
                 </div>
-                <button class="submit-btn" id="submit-btn" onclick="sendData()">ПОТРАТИЛ</button>
+                <button class="submit-btn" id="submit-btn" onclick="sendData()">💸 ПОТРАТИЛ</button>
             </div>
 
             <div class="section-title">История операций</div>
@@ -826,10 +867,10 @@
 
             <div class="input-box">
                 <div class="input-group">
-                    <input type="text" id="sub-name" class="input-field" placeholder="Название (Netflix)">
+                    <input type="text" id="sub-name" class="input-field" placeholder="Название (Netflix)" onkeypress="handleSubEnterKey(event, 'sub-amount')">
                 </div>
                 <div class="input-group">
-                    <input type="number" id="sub-amount" class="input-field" placeholder="Сумма (19)">
+                    <input type="number" id="sub-amount" class="input-field" placeholder="Сумма (19)" onkeypress="handleSubEnterKey(event, 'sub-date')">
                 </div>
                 <div class="input-group">
                     <div style="font-size: 12px; color: var(--text-muted); margin-bottom: 8px; padding-left: 4px;">
@@ -920,29 +961,97 @@
             return parsed;
         }
 
-        let touchStartX = 0;
-        let touchEndX = 0;
+        // ========== iOS-STYLE SWIPE TO DELETE ==========
+        class SwipeHandler {
+            constructor(element, onDelete) {
+                this.element = element;
+                this.onDelete = onDelete;
+                this.startX = 0;
+                this.currentX = 0;
+                this.isDragging = false;
+                this.threshold = 80; // Порог для автоматического удаления
 
-        function addSwipeLogic(element) {
-            element.addEventListener('touchstart', e => {
-                touchStartX = e.changedTouches[0].screenX;
-            });
+                this.element.addEventListener('touchstart', this.handleTouchStart.bind(this), { passive: true });
+                this.element.addEventListener('touchmove', this.handleTouchMove.bind(this), { passive: false });
+                this.element.addEventListener('touchend', this.handleTouchEnd.bind(this), { passive: true });
+            }
 
-            element.addEventListener('touchend', e => {
-                touchEndX = e.changedTouches[0].screenX;
-                handleSwipe(element);
-            });
+            handleTouchStart(e) {
+                this.startX = e.touches[0].clientX;
+                this.currentX = this.startX;
+                this.isDragging = true;
+                this.element.classList.add('swiping');
+            }
+
+            handleTouchMove(e) {
+                if (!this.isDragging) return;
+
+                this.currentX = e.touches[0].clientX;
+                const diff = this.startX - this.currentX;
+
+                // Разрешаем свайп только влево
+                if (diff > 0) {
+                    e.preventDefault();
+                    const translateX = -Math.min(diff, this.threshold);
+                    this.element.style.transform = `translateX(${translateX}px)`;
+                }
+            }
+
+            handleTouchEnd(e) {
+                if (!this.isDragging) return;
+
+                this.isDragging = false;
+                this.element.classList.remove('swiping');
+                this.element.classList.add('snap-back');
+
+                const diff = this.startX - this.currentX;
+
+                if (diff > this.threshold) {
+                    // Свайп достаточно сильный - удаляем
+                    this.element.style.transform = `translateX(-${this.threshold}px)`;
+                    tg?.HapticFeedback?.notificationOccurred?.('warning');
+                    
+                    setTimeout(() => {
+                        this.onDelete();
+                    }, 300);
+                } else {
+                    // Возвращаем на место
+                    this.element.style.transform = 'translateX(0)';
+                }
+
+                setTimeout(() => {
+                    this.element.classList.remove('snap-back');
+                }, 300);
+            }
+
+            reset() {
+                this.element.style.transform = 'translateX(0)';
+                this.element.classList.remove('swiping', 'snap-back');
+            }
         }
 
-        function handleSwipe(element) {
-            const swipeDistance = touchStartX - touchEndX;
-            if (swipeDistance > 50) {
-                document.querySelectorAll('.history-item.swiped').forEach(el => el.classList.remove('swiped'));
-                element.classList.add('swiped');
-                tg?.HapticFeedback?.selectionChanged?.();
+        const swipeHandlers = [];
+
+        function resetAllSwipes() {
+            swipeHandlers.forEach(handler => handler.reset());
+        }
+
+        // ========== ENTER KEY HANDLING ==========
+        function handleEnterKey(event) {
+            if (event.key === 'Enter' || event.keyCode === 13) {
+                event.preventDefault();
+                sendData();
             }
-            if (swipeDistance < -50) {
-                element.classList.remove('swiped');
+        }
+
+        function handleSubEnterKey(event, nextFieldId) {
+            if (event.key === 'Enter' || event.keyCode === 13) {
+                event.preventDefault();
+                if (nextFieldId) {
+                    document.getElementById(nextFieldId).focus();
+                } else {
+                    addSub();
+                }
             }
         }
 
@@ -986,6 +1095,7 @@
 
                 const list = document.getElementById('history');
                 list.innerHTML = "";
+                swipeHandlers.length = 0; // Очищаем старые обработчики
 
                 const history = data.history || [];
                 
@@ -1004,11 +1114,13 @@
                         const dateObj = new Date(item.created_at);
                         const dateStr = dateObj.toLocaleDateString('ru-RU', {day:'numeric', month:'short'});
 
-                        const wrapper = document.createElement('div');
-                        wrapper.className = 'swipe-wrapper';
+                        const container = document.createElement('div');
+                        container.className = 'swipe-container';
 
-                        wrapper.innerHTML = `
-                            <div class="delete-layer" onclick="deleteItem(${item.id})">🗑</div>
+                        container.innerHTML = `
+                            <div class="swipe-actions">
+                                <div class="swipe-delete" onclick="deleteItem(${item.id})">🗑</div>
+                            </div>
                             <div class="history-item">
                                 <div class="history-info">
                                     <div class="history-desc">${item.description}</div>
@@ -1022,10 +1134,11 @@
                             </div>
                         `;
 
-                        const itemDiv = wrapper.querySelector('.history-item');
-                        addSwipeLogic(itemDiv);
+                        const historyItem = container.querySelector('.history-item');
+                        const handler = new SwipeHandler(historyItem, () => deleteItem(item.id));
+                        swipeHandlers.push(handler);
 
-                        list.appendChild(wrapper);
+                        list.appendChild(container);
                     });
                 }
 
@@ -1178,7 +1291,7 @@
         }
 
         async function deleteItem(id) {
-            if(!confirm("Удалить эту запись?")) return;
+            resetAllSwipes();
             
             tg?.HapticFeedback?.impactOccurred?.('heavy');
             
@@ -1188,7 +1301,7 @@
                     body: JSON.stringify({ id: id })
                 });
                 tg?.HapticFeedback?.notificationOccurred?.('success');
-                loadStats();
+                await loadStats();
             } catch (e) {
                 console.error(e);
                 tg?.HapticFeedback?.notificationOccurred?.('error');
