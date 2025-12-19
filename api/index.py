@@ -1,3 +1,4 @@
+from api.rate_limiter import check_rate_limit
 from http.server import BaseHTTPRequestHandler
 from datetime import datetime
 
@@ -31,7 +32,15 @@ class handler(BaseHTTPRequestHandler):
     def do_POST(self):
         user_id = require_user_id(self)
         if user_id is None:
-            return
+        return
+
+    # НОВОЕ: Проверка лимита запросов
+    allowed, remaining = check_rate_limit(user_id)
+    if not allowed:
+        send_error(self, 429, "Слишком много запросов. Подожди минуту.")
+        return
+    
+    # ... остальной код
 
         body = read_json(self)
         if body is None:
