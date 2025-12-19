@@ -3,7 +3,7 @@ from urllib.parse import urlparse, parse_qs
 from datetime import datetime, timedelta
 
 from api.auth import require_user_id
-from api.db import get_supabase
+from api.db import get_supabase_for_user
 from api.utils import send_ok, send_error
 
 
@@ -34,7 +34,7 @@ class handler(BaseHTTPRequestHandler):
             send_error(self, 400, "Invalid period")
             return
 
-        supabase = get_supabase()
+        supabase = get_supabase_for_user(user_id)
 
         settings_res = (
             supabase.table("user_settings")
