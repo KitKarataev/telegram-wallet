@@ -29,19 +29,39 @@ def _is_iso_date(value: str) -> bool:
         return False
 
 
+def _db_result_has_error(res) -> bool:
+    """
+    Попытка универсально определить, содержит ли результат ошибки.
+    Поддерживает разные формы ответа клиентов supabase.
+    """
+    try:
+        if res is None:
+            return True
+        # dict-like
+        if isinstance(res, dict):
+            if res.get("error") or res.get("status_code", 0) >= 400:
+                return True
+        # object-like
+        if hasattr(res, "error") and getattr(res, "error"):
+            return True
+        if hasattr(res, "status_code") and getattr(res, "status_code") >= 400:
+            return True
+    except Exception:
+        return True
+    return False
+
+
 class handler(BaseHTTPRequestHandler):
     def do_POST(self):
         user_id = require_user_id(self)
         if user_id is None:
-        return
+            return
 
-    # НОВОЕ: Проверка лимита запросов
-    allowed, remaining = check_rate_limit(user_id)
-    if not allowed:
-        send_error(self, 429, "Слишком много запросов. Подожди минуту.")
-        return
-    
-    # ... остальной код
+        # Проверка лимита запросов
+        allowed, remaining = check_rate_limit(user_id)
+        if not allowed:
+            send_error(self, 429, "Слишком много запросов. Подожди минуту.")
+            return
 
         body = read_json(self)
         if body is None:
@@ -90,15 +110,27 @@ class handler(BaseHTTPRequestHandler):
                 return
             data["created_at"] = custom_date.strip()
 
-        # ИЗМЕНЕНО: используем RLS-клиент
+        # Используем RLS-клиент
         supabase = get_supabase_for_user(user_id)
-        supabase.table("expenses").insert(data).execute()
+        try:
+            res = supabase.table("expenses").insert(data).execute()
+        except Exception as e:
+            # Логируем неудачную попытку создания записи и возвращаем 500
+            log_event("expense_create_failed", user_id, {"error": str(e), "data": data})
+            send_error(self, 500, "Failed to save expense")
+            return
+
+        # Некоторые клиенты не бросают исключение, но возвращают объект/словарь с ошибкой
+        if _db_result_has_error(res):
+            log_event("expense_create_failed", user_id, {"db_result": str(res), "data": data})
+            send_error(self, 500, "Failed to save expense")
+            return
 
         # Логируем успешное создание записи
-log_event("expense_created", user_id, {
-    "amount": amount,
-    "category": category,
-    "type": record_type
-})
+        log_event("expense_created", user_id, {
+            "amount": amount,
+            "category": category,
+            "type": record_type
+        })
 
         send_ok(self, {"message": "Saved", "category": category, "type": record_type, "amount": amount})
