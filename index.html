@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
     <title>Финансы</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
@@ -29,12 +30,13 @@
             --text-muted: #64748b;
             
             --accent-green: #10b981;
-            --accent-red: #ef4444;
+            --accent-red: #f87171;
+            --accent-red-hover: #ef4444;
             --accent-blue: #3b82f6;
             --accent-purple: #8b5cf6;
             
             --gradient-green: linear-gradient(135deg, #10b981 0%, #059669 100%);
-            --gradient-red: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+            --gradient-red: linear-gradient(135deg, #f87171 0%, #ef4444 100%);
             --gradient-blue: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
             --gradient-glow: linear-gradient(135deg, #14b8a6 0%, #06b6d4 50%, #3b82f6 100%);
             
@@ -59,14 +61,12 @@
             user-select: none;
         }
 
-        /* Container */
         .container {
             max-width: 600px;
             margin: 0 auto;
             padding: 20px 16px;
         }
 
-        /* Glassmorphism Card */
         .glass-card {
             background: var(--glass-bg);
             backdrop-filter: blur(20px);
@@ -77,18 +77,39 @@
             transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
         }
 
-        .glass-card:hover {
-            transform: translateY(-2px);
-            box-shadow: var(--shadow-lg), var(--shadow-glow);
-        }
-
-        /* Header */
         .header {
             display: flex;
             justify-content: space-between;
             align-items: center;
             margin-bottom: 24px;
             padding: 0 4px;
+        }
+
+        .header-with-back {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 24px;
+        }
+
+        .back-btn, .settings-btn {
+            width: 40px;
+            height: 40px;
+            border-radius: 12px;
+            background: var(--glass-bg);
+            backdrop-filter: blur(10px);
+            border: 1px solid var(--glass-border);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            font-size: 20px;
+        }
+
+        .back-btn:hover, .settings-btn:hover {
+            background: rgba(255, 255, 255, 0.06);
+            border-color: rgba(255, 255, 255, 0.12);
         }
 
         .title {
@@ -102,43 +123,10 @@
             letter-spacing: -0.5px;
         }
 
-        .currency-selector {
-            position: relative;
+        .title-small {
+            font-size: 24px;
         }
 
-        .currency-select {
-            appearance: none;
-            background: var(--glass-bg);
-            backdrop-filter: blur(10px);
-            border: 1px solid var(--glass-border);
-            color: var(--text-primary);
-            padding: 10px 36px 10px 16px;
-            border-radius: 16px;
-            font-size: 14px;
-            font-weight: 600;
-            font-family: 'Outfit', sans-serif;
-            cursor: pointer;
-            outline: none;
-            transition: all 0.3s ease;
-        }
-
-        .currency-select:hover {
-            background: rgba(255, 255, 255, 0.06);
-            border-color: rgba(255, 255, 255, 0.12);
-        }
-
-        .currency-selector::after {
-            content: '▼';
-            position: absolute;
-            right: 14px;
-            top: 50%;
-            transform: translateY(-50%);
-            font-size: 10px;
-            color: var(--text-secondary);
-            pointer-events: none;
-        }
-
-        /* Balance Card */
         .balance-card {
             background: var(--gradient-glow);
             border-radius: 32px;
@@ -192,7 +180,6 @@
             text-shadow: 0 2px 20px rgba(0, 0, 0, 0.2);
         }
 
-        /* Filters */
         .filters {
             display: flex;
             gap: 8px;
@@ -243,7 +230,6 @@
             z-index: 1;
         }
 
-        /* Period Stats */
         .period-stats {
             display: grid;
             grid-template-columns: 1fr 1fr;
@@ -258,11 +244,6 @@
             border-radius: 20px;
             padding: 20px;
             transition: all 0.3s ease;
-        }
-
-        .stat-card:hover {
-            transform: translateY(-4px);
-            border-color: rgba(255, 255, 255, 0.15);
         }
 
         .stat-label {
@@ -288,10 +269,9 @@
 
         .stat-value.red {
             color: var(--accent-red);
-            text-shadow: 0 0 20px rgba(239, 68, 68, 0.3);
+            text-shadow: 0 0 20px rgba(248, 113, 113, 0.3);
         }
 
-        /* Input Box */
         .input-box {
             background: var(--glass-bg);
             backdrop-filter: blur(20px);
@@ -359,6 +339,15 @@
             margin-bottom: 14px;
         }
 
+        .input-label {
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--text-secondary);
+            margin-bottom: 8px;
+            padding-left: 4px;
+            display: block;
+        }
+
         .input-field {
             width: 100%;
             padding: 16px 18px;
@@ -372,7 +361,6 @@
             transition: all 0.3s ease;
         }
 
-        /* Date picker стили для iOS */
         input[type="date"].input-field {
             position: relative;
             -webkit-appearance: none;
@@ -390,10 +378,6 @@
             filter: invert(0.6);
             width: 20px;
             height: 20px;
-        }
-
-        input[type="date"].input-field::-webkit-date-and-time-value {
-            text-align: left;
         }
 
         .input-field:focus {
@@ -419,7 +403,7 @@
             letter-spacing: 0.5px;
             cursor: pointer;
             transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-            box-shadow: 0 8px 24px rgba(239, 68, 68, 0.3);
+            box-shadow: 0 8px 24px rgba(248, 113, 113, 0.25);
             position: relative;
             overflow: hidden;
         }
@@ -441,7 +425,6 @@
             transform: scale(0.98);
         }
 
-        /* Section Title */
         .section-title {
             font-family: 'Outfit', sans-serif;
             font-size: 18px;
@@ -457,11 +440,170 @@
             margin: -8px 0 16px 4px;
         }
 
-        /* iOS-STYLE SWIPE TO DELETE - УЛУЧШЕННАЯ ВЕРСИЯ */
+        .view-all-btn {
+            width: 100%;
+            padding: 18px;
+            margin-top: 16px;
+            background: var(--glass-bg);
+            backdrop-filter: blur(20px);
+            border: 1px solid var(--glass-border);
+            border-radius: 20px;
+            color: var(--text-primary);
+            font-size: 15px;
+            font-weight: 600;
+            font-family: 'Outfit', sans-serif;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+        }
+
+        .view-all-btn:hover {
+            background: rgba(255, 255, 255, 0.05);
+            border-color: rgba(255, 255, 255, 0.15);
+            transform: translateY(-2px);
+        }
+
+        /* Chart Container */
+        .chart-container {
+            background: var(--glass-bg);
+            backdrop-filter: blur(20px);
+            border: 1px solid var(--glass-border);
+            border-radius: 24px;
+            padding: 24px;
+            margin-bottom: 20px;
+            min-height: 300px;
+        }
+
+        .chart-title {
+            font-family: 'Outfit', sans-serif;
+            font-size: 16px;
+            font-weight: 700;
+            color: var(--text-primary);
+            margin-bottom: 20px;
+        }
+
+        /* Settings Item */
+        .settings-item {
+            background: var(--glass-bg);
+            backdrop-filter: blur(20px);
+            border: 1px solid var(--glass-border);
+            border-radius: 20px;
+            padding: 20px;
+            margin-bottom: 12px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .settings-item:hover {
+            background: rgba(255, 255, 255, 0.05);
+            border-color: rgba(255, 255, 255, 0.12);
+        }
+
+        .settings-item-left {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+
+        .settings-icon {
+            width: 44px;
+            height: 44px;
+            border-radius: 12px;
+            background: var(--gradient-glow);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 20px;
+        }
+
+        .settings-info h4 {
+            font-size: 16px;
+            font-weight: 600;
+            margin-bottom: 4px;
+            color: var(--text-primary);
+        }
+
+        .settings-info p {
+            font-size: 13px;
+            color: var(--text-muted);
+        }
+
+        .settings-arrow {
+            font-size: 18px;
+            color: var(--text-muted);
+        }
+
+        /* Quick Button Item */
+        .quick-button-item {
+            background: var(--glass-bg);
+            backdrop-filter: blur(20px);
+            border: 1px solid var(--glass-border);
+            border-radius: 20px;
+            padding: 20px;
+            margin-bottom: 12px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .quick-button-input {
+            flex: 1;
+            margin-right: 12px;
+        }
+
+        .delete-quick-btn {
+            width: 40px;
+            height: 40px;
+            border-radius: 12px;
+            background: rgba(248, 113, 113, 0.1);
+            border: none;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--accent-red);
+            font-size: 20px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .delete-quick-btn:hover {
+            background: rgba(248, 113, 113, 0.2);
+            transform: scale(1.05);
+        }
+
+        .add-button-btn {
+            width: 100%;
+            padding: 16px;
+            background: var(--glass-bg);
+            backdrop-filter: blur(20px);
+            border: 1px dashed var(--glass-border);
+            border-radius: 20px;
+            color: var(--text-secondary);
+            font-size: 15px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+        }
+
+        .add-button-btn:hover {
+            background: rgba(255, 255, 255, 0.05);
+            border-color: rgba(255, 255, 255, 0.15);
+        }
+
         .swipe-container {
             position: relative;
             margin-bottom: 10px;
-            overflow: visible; /* ВАЖНО: чтобы тень была видна */
+            overflow: visible;
         }
 
         .swipe-background {
@@ -504,11 +646,6 @@
         .delete-btn:hover {
             transform: scale(1.1);
             background: rgba(255, 255, 255, 0.08);
-            border-color: rgba(255, 255, 255, 0.15);
-        }
-
-        .delete-btn:active {
-            transform: scale(0.95);
         }
 
         .history-item {
@@ -527,11 +664,6 @@
             z-index: 2;
         }
 
-        .history-item:hover {
-            border-color: rgba(255, 255, 255, 0.12);
-        }
-
-        /* Состояния свайпа */
         .history-item.swiping {
             transition: none;
             box-shadow: var(--shadow-lg);
@@ -540,10 +672,6 @@
         .history-item.snap-back {
             transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1),
                         box-shadow 0.3s ease;
-        }
-
-        .history-item.swiped-open {
-            box-shadow: var(--shadow-lg);
         }
 
         .history-info {
@@ -582,7 +710,6 @@
             color: var(--text-primary);
         }
 
-        /* Subscription Item */
         .sub-item {
             background: var(--glass-bg);
             backdrop-filter: blur(20px);
@@ -594,11 +721,6 @@
             justify-content: space-between;
             align-items: center;
             transition: all 0.3s ease;
-        }
-
-        .sub-item:hover {
-            border-color: rgba(255, 255, 255, 0.12);
-            transform: translateY(-2px);
         }
 
         .sub-info h4 {
@@ -632,7 +754,7 @@
             display: flex;
             align-items: center;
             justify-content: center;
-            background: rgba(239, 68, 68, 0.1);
+            background: rgba(248, 113, 113, 0.1);
             border-radius: 10px;
             color: var(--accent-red);
             font-size: 20px;
@@ -641,11 +763,10 @@
         }
 
         .sub-delete:hover {
-            background: rgba(239, 68, 68, 0.2);
+            background: rgba(248, 113, 113, 0.2);
             transform: scale(1.1);
         }
 
-        /* Export Button */
         .export-btn {
             margin-top: 28px;
             padding: 20px;
@@ -667,7 +788,6 @@
             color: var(--text-primary);
         }
 
-        /* Bottom Navigation */
         .bottom-nav {
             position: fixed;
             bottom: 0;
@@ -686,7 +806,7 @@
             max-width: 600px;
             margin: 0 auto;
             display: grid;
-            grid-template-columns: 1fr 1fr;
+            grid-template-columns: 1fr 1fr 1fr;
             gap: 8px;
             padding: 0 16px;
         }
@@ -737,7 +857,6 @@
             z-index: 1;
         }
 
-        /* Screen States */
         .screen {
             display: none;
             animation: fadeIn 0.4s ease;
@@ -758,7 +877,6 @@
             }
         }
 
-        /* Empty State */
         .empty-state {
             text-align: center;
             padding: 60px 20px;
@@ -775,7 +893,6 @@
             color: var(--text-muted);
         }
 
-        /* Loading */
         .loading {
             display: inline-block;
             width: 20px;
@@ -790,22 +907,34 @@
             to { transform: rotate(360deg); }
         }
 
-        /* Scrollbar */
-        ::-webkit-scrollbar {
-            width: 8px;
+        .results-count {
+            font-size: 13px;
+            color: var(--text-muted);
+            margin: 16px 4px;
         }
 
-        ::-webkit-scrollbar-track {
-            background: transparent;
+        .transaction-filters {
+            background: var(--glass-bg);
+            backdrop-filter: blur(20px);
+            border: 1px solid var(--glass-border);
+            border-radius: 24px;
+            padding: 20px;
+            margin-bottom: 20px;
         }
 
-        ::-webkit-scrollbar-thumb {
-            background: rgba(255, 255, 255, 0.1);
-            border-radius: 4px;
+        .filter-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+            margin-bottom: 12px;
         }
 
-        ::-webkit-scrollbar-thumb:hover {
-            background: rgba(255, 255, 255, 0.15);
+        .filter-row:last-child {
+            margin-bottom: 0;
+        }
+
+        .filter-row-full {
+            grid-column: 1 / -1;
         }
     </style>
 </head>
@@ -815,13 +944,7 @@
         <div class="container">
             <div class="header">
                 <div class="title">Финансы</div>
-                <div class="currency-selector">
-                    <select id="currency-select" class="currency-select" onchange="changeCurrency()">
-                        <option value="RUB">RUB ₽</option>
-                        <option value="USD">USD $</option>
-                        <option value="EUR">EUR €</option>
-                    </select>
-                </div>
+                <div class="settings-btn" onclick="openSettings()">⚙️</div>
             </div>
 
             <div class="balance-card">
@@ -875,14 +998,98 @@
                 <button class="submit-btn" id="submit-btn" onclick="sendData()">💸 ПОТРАТИЛ</button>
             </div>
 
-            <div class="section-title">История операций</div>
+            <div class="section-title">Последние операции</div>
             <div class="section-subtitle">Смахни влево, чтобы удалить ⬅️</div>
 
-            <div id="history"></div>
+            <div id="history-preview"></div>
+
+            <button class="view-all-btn" onclick="openAllTransactions()">
+                <span>📊 ВСЕ ТРАНЗАКЦИИ</span>
+            </button>
 
             <div class="export-btn" onclick="downloadReport()">
                 📥 Скачать отчет (CSV)
             </div>
+        </div>
+    </div>
+
+    <!-- Statistics Screen -->
+    <div id="screen-stats" class="screen">
+        <div class="container">
+            <div class="header">
+                <div class="title">Статистика</div>
+            </div>
+
+            <div class="transaction-filters">
+                <div class="filter-row">
+                    <div class="input-group">
+                        <label class="input-label">От</label>
+                        <input type="date" id="stats-date-from" class="input-field" onchange="updateCharts()">
+                    </div>
+                    <div class="input-group">
+                        <label class="input-label">До</label>
+                        <input type="date" id="stats-date-to" class="input-field" onchange="updateCharts()">
+                    </div>
+                </div>
+                <div class="filter-row">
+                    <div class="input-group filter-row-full">
+                        <label class="input-label">Категория</label>
+                        <select id="stats-category" class="input-field" onchange="updateCharts()">
+                            <option value="">Все категории</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+
+            <div class="chart-container">
+                <div class="chart-title">Доходы и Расходы</div>
+                <canvas id="incomeExpenseChart"></canvas>
+            </div>
+
+            <div class="chart-container">
+                <div class="chart-title">Расходы по категориям</div>
+                <canvas id="categoryChart"></canvas>
+            </div>
+
+            <div class="chart-container">
+                <div class="chart-title">Динамика за период</div>
+                <canvas id="trendChart"></canvas>
+            </div>
+        </div>
+    </div>
+
+    <!-- All Transactions Screen -->
+    <div id="screen-all-transactions" class="screen">
+        <div class="container">
+            <div class="header-with-back">
+                <div class="back-btn" onclick="closeAllTransactions()">←</div>
+                <div class="title title-small">Все транзакции</div>
+            </div>
+
+            <div class="transaction-filters">
+                <div class="filter-row">
+                    <div class="input-group">
+                        <label class="input-label">От</label>
+                        <input type="date" id="filter-date-from" class="input-field" onchange="applyTransactionFilters()">
+                    </div>
+                    <div class="input-group">
+                        <label class="input-label">До</label>
+                        <input type="date" id="filter-date-to" class="input-field" onchange="applyTransactionFilters()">
+                    </div>
+                </div>
+                <div class="filter-row">
+                    <div class="input-group filter-row-full">
+                        <label class="input-label">Категория</label>
+                        <select id="filter-category" class="input-field" onchange="applyTransactionFilters()">
+                            <option value="">Все категории</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+
+            <div class="results-count" id="results-count">Загрузка...</div>
+
+            <div id="history-all"></div>
         </div>
     </div>
 
@@ -923,12 +1130,121 @@
         </div>
     </div>
 
+    <!-- Settings Screen -->
+    <div id="screen-settings" class="screen">
+        <div class="container">
+            <div class="header-with-back">
+                <div class="back-btn" onclick="closeSettings()">←</div>
+                <div class="title title-small">Настройки</div>
+            </div>
+
+            <div class="settings-item" onclick="openCurrencySettings()">
+                <div class="settings-item-left">
+                    <div class="settings-icon">💰</div>
+                    <div class="settings-info">
+                        <h4>Валюта</h4>
+                        <p id="current-currency">RUB</p>
+                    </div>
+                </div>
+                <div class="settings-arrow">›</div>
+            </div>
+
+            <div class="settings-item" onclick="openLanguageSettings()">
+                <div class="settings-item-left">
+                    <div class="settings-icon">🌐</div>
+                    <div class="settings-info">
+                        <h4>Язык</h4>
+                        <p id="current-language">Русский</p>
+                    </div>
+                </div>
+                <div class="settings-arrow">›</div>
+            </div>
+
+            <div class="settings-item" onclick="openQuickButtonsSettings()">
+                <div class="settings-item-left">
+                    <div class="settings-icon">⚡</div>
+                    <div class="settings-info">
+                        <h4>Быстрые кнопки</h4>
+                        <p>Настроить кнопки бота</p>
+                    </div>
+                </div>
+                <div class="settings-arrow">›</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Currency Settings Screen -->
+    <div id="screen-currency" class="screen">
+        <div class="container">
+            <div class="header-with-back">
+                <div class="back-btn" onclick="closeCurrencySettings()">←</div>
+                <div class="title title-small">Выбор валюты</div>
+            </div>
+
+            <div class="input-box">
+                <select id="currency-select-setting" class="input-field" onchange="saveCurrency()">
+                    <option value="RUB">RUB - Российский рубль ₽</option>
+                    <option value="USD">USD - Доллар США $</option>
+                    <option value="EUR">EUR - Евро €</option>
+                </select>
+            </div>
+        </div>
+    </div>
+
+    <!-- Language Settings Screen -->
+    <div id="screen-language" class="screen">
+        <div class="container">
+            <div class="header-with-back">
+                <div class="back-btn" onclick="closeLanguageSettings()">←</div>
+                <div class="title title-small">Выбор языка</div>
+            </div>
+
+            <div class="input-box">
+                <select id="language-select" class="input-field" onchange="saveLanguage()">
+                    <option value="ru">Русский</option>
+                    <option value="en">English</option>
+                </select>
+            </div>
+        </div>
+    </div>
+
+    <!-- Quick Buttons Settings Screen -->
+    <div id="screen-quick-buttons" class="screen">
+        <div class="container">
+            <div class="header-with-back">
+                <div class="back-btn" onclick="closeQuickButtonsSettings()">←</div>
+                <div class="title title-small">Быстрые кнопки</div>
+            </div>
+
+            <div class="section-subtitle" style="margin-top: -12px;">
+                Создайте до 6 кнопок для быстрого добавления трат.<br>
+                Пример: "Кофе" или "Кофе 250"
+            </div>
+
+            <div id="quick-buttons-list"></div>
+
+            <button class="add-button-btn" onclick="addQuickButton()" id="add-quick-btn">
+                <span>+ Добавить кнопку</span>
+            </button>
+
+            <div style="margin-top: 20px;">
+                <button class="submit-btn" style="background: var(--gradient-blue); box-shadow: 0 8px 24px rgba(59, 130, 246, 0.3);" onclick="saveQuickButtons()">
+                    СОХРАНИТЬ
+                </button>
+            </div>
+        </div>
+    </div>
+
     <!-- Bottom Navigation -->
     <div class="bottom-nav">
         <div class="nav-container">
             <div class="nav-item active" onclick="switchTab('wallet', this)">
                 <span class="nav-icon">💳</span>
                 <span class="nav-label">Кошелек</span>
+            </div>
+            <div class="nav-item" onclick="switchTab('stats', this)">
+                <span class="nav-icon">📊</span>
+                <span class="nav-label">Статистика</span>
             </div>
             <div class="nav-item" onclick="switchTab('subs', this)">
                 <span class="nav-icon">🔔</span>
@@ -937,482 +1253,6 @@
         </div>
     </div>
 
-    <script>
-        const tg = window.Telegram?.WebApp;
-
-        if (!tg) {
-            alert("Открой это приложение внутри Telegram");
-        } else {
-            tg.expand?.();
-            tg.setHeaderColor?.('#0a0e1a');
-            tg.setBackgroundColor?.('#0a0e1a');
-        }
-
-        window.addEventListener("error", (e) => {
-            console.error("JS ERROR:", e?.error || e?.message || e);
-            alert("Ошибка в приложении: " + (e?.message || "см. console"));
-        });
-
-        let SYMBOLS = {"RUB": "₽", "USD": "$", "EUR": "€"};
-        let currentCurrency = "RUB";
-        let currentPeriod = 'month';
-        let currentType = 'expense';
-
-        document.getElementById('sub-date').valueAsDate = new Date();
-        document.getElementById('date-picker').valueAsDate = new Date();
-
-        function tgInitData() {
-            return tg?.initData || "";
-        }
-
-        async function tgFetch(url, options = {}) {
-            const initData = tgInitData();
-            if (!initData) {
-                throw new Error("Нет Telegram initData. Открой WebApp внутри Telegram через кнопку бота.");
-            }
-
-            const headers = new Headers(options.headers || {});
-            if (options.body && !headers.has("Content-Type")) {
-                headers.set("Content-Type", "application/json; charset=utf-8");
-            }
-            headers.set("X-Tg-Init-Data", initData);
-
-            const res = await fetch(url, { ...options, headers });
-            const text = await res.text();
-            let parsed;
-            try { parsed = JSON.parse(text); } catch { parsed = text; }
-
-            if (!res.ok) {
-                console.error("API error", res.status, parsed);
-                throw new Error(parsed?.error || ("API error " + res.status));
-            }
-            return parsed;
-        }
-
-        // ========== iOS-STYLE SWIPE TO DELETE - ПОЛНОСТЬЮ ПЕРЕПИСАН ==========
-        class SwipeHandler {
-            constructor(container, itemElement, backgroundElement, onDelete) {
-                this.container = container;
-                this.element = itemElement;
-                this.background = backgroundElement;
-                this.onDelete = onDelete;
-                this.startX = 0;
-                this.currentX = 0;
-                this.isDragging = false;
-                this.isOpen = false;
-                this.threshold = 80; // Минимальный свайп для открытия
-                this.maxSwipe = 90; // Максимальное смещение
-
-                this.element.addEventListener('touchstart', this.handleTouchStart.bind(this), { passive: true });
-                this.element.addEventListener('touchmove', this.handleTouchMove.bind(this), { passive: false });
-                this.element.addEventListener('touchend', this.handleTouchEnd.bind(this), { passive: true });
-            }
-
-            handleTouchStart(e) {
-                this.startX = e.touches[0].clientX;
-                this.currentX = this.startX;
-                this.isDragging = true;
-                this.element.classList.add('swiping');
-            }
-
-            handleTouchMove(e) {
-                if (!this.isDragging) return;
-
-                this.currentX = e.touches[0].clientX;
-                const diff = this.startX - this.currentX;
-
-                // Разрешаем свайп только влево
-                if (diff > 0) {
-                    e.preventDefault();
-                    const translateX = -Math.min(diff, this.maxSwipe);
-                    this.element.style.transform = `translateX(${translateX}px)`;
-                    
-                    // Показываем фон когда начинаем свайпать
-                    if (Math.abs(translateX) > 10 && !this.background.classList.contains('visible')) {
-                        this.background.classList.add('visible');
-                        tg?.HapticFeedback?.impactOccurred?.('light');
-                    }
-                }
-            }
-
-            handleTouchEnd(e) {
-                if (!this.isDragging) return;
-
-                this.isDragging = false;
-                this.element.classList.remove('swiping');
-                this.element.classList.add('snap-back');
-
-                const diff = this.startX - this.currentX;
-
-                if (diff > this.threshold) {
-                    // Открываем свайп - кнопка остается видимой
-                    this.open();
-                } else {
-                    // Закрываем
-                    this.close();
-                }
-
-                setTimeout(() => {
-                    this.element.classList.remove('snap-back');
-                }, 300);
-            }
-
-            open() {
-                this.isOpen = true;
-                this.element.style.transform = `translateX(-${this.maxSwipe}px)`;
-                this.element.classList.add('swiped-open');
-                this.background.classList.add('visible');
-                tg?.HapticFeedback?.impactOccurred?.('medium');
-            }
-
-            close() {
-                this.isOpen = false;
-                this.element.style.transform = 'translateX(0)';
-                this.element.classList.remove('swiped-open');
-                this.background.classList.remove('visible');
-            }
-
-            reset() {
-                this.close();
-            }
-        }
-
-        const swipeHandlers = [];
-
-        function closeAllSwipes() {
-            swipeHandlers.forEach(handler => handler.close());
-        }
-
-        // Закрываем все свайпы при скролле
-        let scrollTimeout;
-        window.addEventListener('scroll', () => {
-            clearTimeout(scrollTimeout);
-            scrollTimeout = setTimeout(() => {
-                closeAllSwipes();
-            }, 100);
-        }, { passive: true });
-
-        // ========== ENTER KEY HANDLING ==========
-        function handleEnterKey(event) {
-            if (event.key === 'Enter' || event.keyCode === 13) {
-                event.preventDefault();
-                sendData();
-            }
-        }
-
-        function handleSubEnterKey(event, nextFieldId) {
-            if (event.key === 'Enter' || event.keyCode === 13) {
-                event.preventDefault();
-                if (nextFieldId) {
-                    document.getElementById(nextFieldId).focus();
-                } else {
-                    addSub();
-                }
-            }
-        }
-
-        function setType(type) {
-            currentType = type;
-            document.getElementById('btn-exp').className = `type-btn ${type === 'expense' ? 'active-exp' : ''}`;
-            document.getElementById('btn-inc').className = `type-btn ${type === 'income' ? 'active-inc' : ''}`;
-            const btn = document.getElementById('submit-btn');
-            if (type === 'income') {
-                btn.style.background = 'var(--gradient-green)';
-                btn.style.boxShadow = '0 8px 24px rgba(16, 185, 129, 0.3)';
-                btn.innerHTML = '💰 ЗАРАБОТАЛ';
-            } else {
-                btn.style.background = 'var(--gradient-red)';
-                btn.style.boxShadow = '0 8px 24px rgba(239, 68, 68, 0.3)';
-                btn.innerHTML = '💸 ПОТРАТИЛ';
-            }
-        }
-
-        function switchTab(screenName, btn) {
-            document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
-            document.querySelectorAll('.nav-item').forEach(b => b.classList.remove('active'));
-            document.getElementById(`screen-${screenName}`).classList.add('active');
-            btn.classList.add('active');
-            
-            closeAllSwipes();
-            tg?.HapticFeedback?.impactOccurred?.('soft');
-        }
-
-        async function loadStats() {
-            try {
-                const res = await tgFetch(`/api/stats?period=${currentPeriod}`, { method: "GET" });
-                const data = res?.data || res;
-
-                currentCurrency = data.currency || "RUB";
-                document.getElementById('currency-select').value = currentCurrency;
-                const sym = SYMBOLS[currentCurrency] || '';
-
-                document.getElementById('total-balance').innerText = `${data.total_balance ?? 0} ${sym}`;
-                document.getElementById('inc-val').innerText = `+${data.period?.income ?? 0}`;
-                document.getElementById('exp-val').innerText = `-${data.period?.expense ?? 0}`;
-
-                const list = document.getElementById('history');
-                list.innerHTML = "";
-                swipeHandlers.length = 0; // Очищаем старые обработчики
-
-                const history = data.history || [];
-                
-                if (history.length === 0) {
-                    list.innerHTML = `
-                        <div class="empty-state">
-                            <div class="empty-state-icon">📊</div>
-                            <div class="empty-state-text">Здесь будет история твоих операций</div>
-                        </div>
-                    `;
-                } else {
-                    history.forEach(item => {
-                        const isIncome = item.type === 'income';
-                        const color = isIncome ? 'green' : 'red';
-                        const sign = isIncome ? '+' : '-';
-                        const dateObj = new Date(item.created_at);
-                        const dateStr = dateObj.toLocaleDateString('ru-RU', {day:'numeric', month:'short'});
-
-                        const container = document.createElement('div');
-                        container.className = 'swipe-container';
-
-                        container.innerHTML = `
-                            <div class="swipe-background">
-                                <div class="delete-btn" onclick="handleDeleteClick(${item.id})">🗑️</div>
-                            </div>
-                            <div class="history-item">
-                                <div class="history-info">
-                                    <div class="history-desc">${item.description}</div>
-                                    <div class="history-meta">
-                                        <span>${dateStr}</span>
-                                        <span>•</span>
-                                        <span>${item.category}</span>
-                                    </div>
-                                </div>
-                                <div class="history-amount ${color}">${sign}${item.amount} ${sym}</div>
-                            </div>
-                        `;
-
-                        const historyItem = container.querySelector('.history-item');
-                        const background = container.querySelector('.swipe-background');
-                        const handler = new SwipeHandler(container, historyItem, background, () => deleteItem(item.id));
-                        swipeHandlers.push(handler);
-
-                        list.appendChild(container);
-                    });
-                }
-
-                const subList = document.getElementById('subs-list');
-                subList.innerHTML = "";
-                const subs = data.subscriptions || [];
-                
-                if (subs.length === 0) {
-                    subList.innerHTML = `
-                        <div class="empty-state">
-                            <div class="empty-state-icon">🔔</div>
-                            <div class="empty-state-text">У тебя пока нет подписок</div>
-                        </div>
-                    `;
-                } else {
-                    subs.forEach(sub => {
-                        const dateObj = new Date(sub.next_date);
-                        const dateStr = dateObj.toLocaleDateString('ru-RU');
-                        
-                        const item = document.createElement('div');
-                        item.className = 'sub-item';
-                        item.innerHTML = `
-                            <div class="sub-info">
-                                <h4>${sub.name}</h4>
-                                <div class="sub-date">След. оплата: ${dateStr}</div>
-                            </div>
-                            <div class="sub-actions">
-                                <div class="sub-amount">${sub.amount} ${sub.currency}</div>
-                                <div class="sub-delete" onclick="delSub(${sub.id})">×</div>
-                            </div>
-                        `;
-                        subList.appendChild(item);
-                    });
-                }
-
-            } catch (e) {
-                console.error(e);
-                alert("Не удалось загрузить данные: " + (e?.message || e));
-            }
-        }
-
-        async function sendData() {
-            const input = document.getElementById('expense');
-            const dateInput = document.getElementById('date-picker');
-            if(!input.value) {
-                tg?.HapticFeedback?.notificationOccurred?.('error');
-                return;
-            }
-
-            input.blur();
-            dateInput.blur();
-
-            tg?.HapticFeedback?.impactOccurred?.('medium');
-
-            try {
-                await tgFetch('/api/index', {
-                    method: 'POST',
-                    body: JSON.stringify({
-                        text: input.value,
-                        type: currentType,
-                        date: dateInput.value
-                    })
-                });
-
-                input.value = "";
-                tg?.HapticFeedback?.notificationOccurred?.('success');
-                await loadStats();
-            } catch (e) {
-                console.error(e);
-                tg?.HapticFeedback?.notificationOccurred?.('error');
-                alert("Ошибка добавления: " + (e?.message || e));
-            }
-        }
-
-        function setFilter(p, el) { 
-            currentPeriod = p; 
-            document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
-            el.classList.add('active'); 
-            closeAllSwipes();
-            tg?.HapticFeedback?.selectionChanged?.();
-            loadStats(); 
-        }
-        
-        async function changeCurrency() {
-            const s = document.getElementById('currency-select');
-            tg?.HapticFeedback?.selectionChanged?.();
-            try {
-                await tgFetch('/api/settings', {
-                    method: 'POST',
-                    body: JSON.stringify({ currency: s.value })
-                });
-                loadStats();
-            } catch (e) {
-                console.error(e);
-                alert("Ошибка сохранения валюты: " + (e?.message || e));
-            }
-        }
-
-        async function addSub() {
-            const name = document.getElementById('sub-name').value;
-            const amount = document.getElementById('sub-amount').value;
-            const date = document.getElementById('sub-date').value;
-            const period = document.getElementById('sub-period').value;
-            
-            if(!name || !amount) {
-                tg?.HapticFeedback?.notificationOccurred?.('error');
-                return;
-            }
-
-            try {
-                await tgFetch('/api/subs', {
-                    method: 'POST',
-                    body: JSON.stringify({
-                        action: 'add',
-                        name: name,
-                        amount: amount,
-                        currency: currentCurrency,
-                        date: date,
-                        period: period
-                    })
-                });
-
-                document.getElementById('sub-name').value = "";
-                document.getElementById('sub-amount').value = "";
-                tg?.HapticFeedback?.notificationOccurred?.('success');
-                loadStats();
-            } catch (e) {
-                console.error(e);
-                tg?.HapticFeedback?.notificationOccurred?.('error');
-                alert("Ошибка подписки: " + (e?.message || e));
-            }
-        }
-
-        async function delSub(id) {
-            if(!confirm("Удалить подписку?")) return;
-            
-            tg?.HapticFeedback?.impactOccurred?.('heavy');
-            
-            try {
-                await tgFetch('/api/subs', {
-                    method: 'POST',
-                    body: JSON.stringify({ action: 'delete', id: id })
-                });
-                tg?.HapticFeedback?.notificationOccurred?.('success');
-                loadStats();
-            } catch (e) {
-                console.error(e);
-                tg?.HapticFeedback?.notificationOccurred?.('error');
-                alert("Ошибка удаления подписки: " + (e?.message || e));
-            }
-        }
-
-        // Обработчик клика по кнопке удаления
-        function handleDeleteClick(id) {
-            tg?.HapticFeedback?.impactOccurred?.('heavy');
-            deleteItem(id);
-        }
-
-        async function deleteItem(id) {
-            try {
-                await tgFetch('/api/delete', {
-                    method: 'POST',
-                    body: JSON.stringify({ id: id })
-                });
-                tg?.HapticFeedback?.notificationOccurred?.('success');
-                await loadStats();
-            } catch (e) {
-                console.error(e);
-                tg?.HapticFeedback?.notificationOccurred?.('error');
-                alert("Ошибка удаления: " + (e?.message || e));
-            }
-        }
-
-        async function downloadReport() {
-            try {
-                const initData = tgInitData();
-                if (!initData) {
-                    alert("Открой приложение внутри Telegram");
-                    return;
-                }
-
-                tg?.HapticFeedback?.impactOccurred?.('medium');
-
-                const res = await fetch('/api/export', {
-                    method: "GET",
-                    headers: { "X-Tg-Init-Data": initData }
-                });
-
-                if (!res.ok) {
-                    const t = await res.text();
-                    console.error("Export error", res.status, t);
-                    tg?.HapticFeedback?.notificationOccurred?.('error');
-                    alert("Не удалось скачать отчет");
-                    return;
-                }
-
-                const blob = await res.blob();
-                const url = URL.createObjectURL(blob);
-
-                const a = document.createElement("a");
-                a.href = url;
-                a.download = "finance_report.csv";
-                document.body.appendChild(a);
-                a.click();
-                a.remove();
-
-                URL.revokeObjectURL(url);
-                tg?.HapticFeedback?.notificationOccurred?.('success');
-            } catch (e) {
-                console.error(e);
-                tg?.HapticFeedback?.notificationOccurred?.('error');
-                alert("Ошибка отчета: " + (e?.message || e));
-            }
-        }
-
-        loadStats();
-    </script>
+    <script src="app.js"></script>
 </body>
 </html>
