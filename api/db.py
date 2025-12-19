@@ -1,19 +1,9 @@
 # api/db.py
-# Supabase client factory.
-#
-# Env vars required:
-#   SUPABASE_URL
-#   SUPABASE_KEY
-#
-# IMPORTANT:
-# - SUPABASE_KEY is assumed to be a service_role key.
-# - This means ALL access control must be enforced in backend code.
-# - TODO: Enable RLS in Supabase and add policies per user_id.
-
 from __future__ import annotations
 
 import os
 from supabase import create_client, Client
+from typing import Optional
 
 _supabase: Client | None = None
 
@@ -35,3 +25,29 @@ def get_supabase() -> Client:
         key = _get_env("SUPABASE_KEY")
         _supabase = create_client(url, key)
     return _supabase
+
+
+def get_supabase_for_user(user_id: int) -> Client:
+    """
+    Возвращает клиент Supabase с настройкой пользователя для RLS.
+    Используй ЭТУ функцию в обычных API endpoints.
+    """
+    client = get_supabase()
+    set_user_context(client, user_id)
+    return client
+
+
+def set_user_context(client: Client, user_id: int) -> None:
+    """Устанавливает текущего пользователя для RLS"""
+    try:
+        client.rpc('set_user_context', {'p_user_id': user_id}).execute()
+    except Exception as e:
+        print(f"Failed to set user context: {e}")
+
+
+def get_supabase_admin() -> Client:
+    """
+    Возвращает клиент БЕЗ RLS для админских операций.
+    Используй ТОЛЬКО для bot.py и cron.py!
+    """
+    return get_supabase()
