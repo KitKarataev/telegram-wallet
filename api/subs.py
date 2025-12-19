@@ -2,7 +2,7 @@ from http.server import BaseHTTPRequestHandler
 from datetime import datetime
 
 from api.auth import require_user_id
-from api.db import get_supabase
+from api.db import get_supabase_for_user
 from api.utils import read_json, send_ok, send_error
 
 
@@ -50,7 +50,7 @@ class handler(BaseHTTPRequestHandler):
             send_error(self, 400, "Invalid action. Use: add | delete | list")
             return
 
-        supabase = get_supabase()
+        supabase = get_supabase_for_user(user_id)
 
         # 3) Actions
         if action == "list":
