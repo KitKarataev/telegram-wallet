@@ -4,7 +4,7 @@ import calendar
 import os
 import requests
 
-from api.db import get_supabase
+from api.db import get_supabase_admin
 from api.utils import send_ok, send_error
 
 
@@ -59,7 +59,7 @@ class handler(BaseHTTPRequestHandler):
             send_error(self, 401, "Unauthorized")
             return
 
-        supabase = get_supabase()
+        supabase = get_supabase_admin()
 
         # Find subscriptions with next_date = today + 3 days (UTC)
         target_date = (datetime.utcnow().date() + timedelta(days=3)).strftime("%Y-%m-%d")
