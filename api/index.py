@@ -90,7 +90,7 @@ class handler(BaseHTTPRequestHandler):
             # it is safer to send full ISO. We keep existing behavior but validated.
             data["created_at"] = custom_date.strip()
 
-        supabase = get_supabase()
+        supabase = get_supabase_for_user(user_id)
         supabase.table("expenses").insert(data).execute()
 
         send_ok(self, {"message": "Saved", "category": category, "type": record_type, "amount": amount})
