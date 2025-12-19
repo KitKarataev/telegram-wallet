@@ -58,6 +58,92 @@ async function tgFetch(url, options = {}) {
     return parsed;
 }
 
+// ========== НОВАЯ ФУНКЦИЯ: РАБОТА С КАМЕРОЙ ==========
+function openCamera() {
+    tg?.HapticFeedback?.impactOccurred?.('light');
+    
+    const input = document.getElementById('receipt-input');
+    input.click();
+}
+
+// Обработчик выбора фото
+document.getElementById('receipt-input').addEventListener('change', async function(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    // Проверка размера (макс 5MB)
+    if (file.size > 5 * 1024 * 1024) {
+        tg?.HapticFeedback?.notificationOccurred?.('error');
+        alert('Файл слишком большой. Максимум 5MB.');
+        return;
+    }
+
+    // Проверка типа
+    if (!file.type.startsWith('image/')) {
+        tg?.HapticFeedback?.notificationOccurred?.('error');
+        alert('Выберите изображение (JPG, PNG, WEBP)');
+        return;
+    }
+
+    tg?.HapticFeedback?.impactOccurred?.('medium');
+    
+    // Показываем индикатор загрузки
+    const submitBtn = document.getElementById('submit-btn');
+    const originalText = submitBtn.innerHTML;
+    submitBtn.innerHTML = '<span class="loading"></span> Обрабатываем чек...';
+    submitBtn.disabled = true;
+
+    try {
+        // Конвертируем в base64
+        const base64 = await fileToBase64(file);
+        
+        // Отправляем на сервер
+        const result = await tgFetch('/api/process-receipt', {
+            method: 'POST',
+            body: JSON.stringify({
+                image: base64,
+                date: document.getElementById('date-picker').value
+            })
+        });
+
+        tg?.HapticFeedback?.notificationOccurred?.('success');
+        
+        // Показываем результат
+        const data = result?.data || result;
+        if (data.items && data.items.length > 0) {
+            const totalAmount = data.items.reduce((sum, item) => sum + item.amount, 0);
+            alert(`✅ Распознано ${data.items.length} позиций на сумму ${totalAmount} ${SYMBOLS[currentCurrency]}\n\nТовары:\n` + 
+                  data.items.map(item => `• ${item.name}: ${item.amount}`).join('\n'));
+        }
+        
+        // Перезагружаем статистику
+        await loadStats();
+        
+    } catch (e) {
+        console.error('Receipt processing error:', e);
+        tg?.HapticFeedback?.notificationOccurred?.('error');
+        alert('Не удалось обработать чек: ' + (e?.message || e));
+    } finally {
+        submitBtn.innerHTML = originalText;
+        submitBtn.disabled = false;
+        event.target.value = ''; // Сбрасываем input
+    }
+});
+
+// Вспомогательная функция для конвертации файла в base64
+function fileToBase64(file) {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => {
+            // Убираем префикс "data:image/jpeg;base64,"
+            const base64 = reader.result.split(',')[1];
+            resolve(base64);
+        };
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+    });
+}
+
 // ========== iOS-STYLE SWIPE TO DELETE ==========
 class SwipeHandler {
     constructor(container, itemElement, backgroundElement, onDelete) {
