@@ -1021,3 +1021,145 @@ async function downloadReport() {
 // Initialize
 loadStats();
 loadQuickButtons();
+
+// ============ AI АССИСТЕНТ ============
+
+let aiChatHistory = [];
+let aiChatLoaded = false;
+
+async function loadAIChatHistory() {
+  if (aiChatLoaded) return; // Загружаем только 1 раз
+  
+  try {
+    const response = await fetch('/api/ai-chat?history=true', {
+      headers: { 'X-Tg-Init-Data': window.Telegram.WebApp.initData }
+    });
+    
+    const data = await response.json();
+    
+    if (data.success && data.data.history) {
+      aiChatHistory = data.data.history;
+      aiChatLoaded = true;
+      renderAIChat();
+    }
+  } catch (error) {
+    console.error('Load AI history error:', error);
+  }
+}
+
+function renderAIChat() {
+  const container = document.getElementById('aiChatMessages');
+  
+  if (aiChatHistory.length === 0) {
+    // Показываем приветствие (уже есть в HTML)
+    return;
+  }
+  
+  // Очищаем и рендерим сообщения
+  container.innerHTML = aiChatHistory.map(msg => {
+    const escaped = escapeHtml(msg.content);
+    return `<div class="ai-message ${msg.role}">${escaped}</div>`;
+  }).join('');
+  
+  // Скролл вниз
+  setTimeout(() => {
+    container.scrollTop = container.scrollHeight;
+  }, 100);
+}
+
+async function sendAIMessage() {
+  const input = document.getElementById('aiMessageInput');
+  const message = input.value.trim();
+  
+  if (!message) return;
+  
+  // Очищаем поле
+  input.value = '';
+  
+  // Добавляем сообщение пользователя
+  aiChatHistory.push({ role: 'user', content: message });
+  renderAIChat();
+  
+  // Показываем индикатор
+  showTypingIndicator();
+  
+  try {
+    const response = await fetch('/api/ai-chat', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Tg-Init-Data': window.Telegram.WebApp.initData
+      },
+      body: JSON.stringify({ message })
+    });
+    
+    const data = await response.json();
+    
+    hideTypingIndicator();
+    
+    if (data.success && data.data.message) {
+      aiChatHistory.push({
+        role: 'assistant',
+        content: data.data.message
+      });
+      renderAIChat();
+    } else {
+      showToast('Ошибка AI', 'error');
+    }
+    
+  } catch (error) {
+    hideTypingIndicator();
+    console.error('AI error:', error);
+    showToast('Не удалось связаться с AI', 'error');
+  }
+}
+
+function askAI(question) {
+  document.getElementById('aiMessageInput').value = question;
+  sendAIMessage();
+}
+
+function showTypingIndicator() {
+  const container = document.getElementById('aiChatMessages');
+  const indicator = document.createElement('div');
+  indicator.className = 'ai-message typing';
+  indicator.id = 'typingIndicator';
+  indicator.innerHTML = `
+    <div class="typing-dots">
+      <span></span>
+      <span></span>
+      <span></span>
+    </div>
+  `;
+  container.appendChild(indicator);
+  container.scrollTop = container.scrollHeight;
+}
+
+function hideTypingIndicator() {
+  const indicator = document.getElementById('typingIndicator');
+  if (indicator) indicator.remove();
+}
+
+async function clearAIChat() {
+  if (!confirm('Очистить историю чата с AI?')) return;
+  
+  aiChatHistory = [];
+  renderAIChat();
+  showToast('История очищена', 'success');
+}
+
+function escapeHtml(text) {
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML.replace(/\n/g, '<br>');
+}
+
+// Загрузка истории при открытии AI экрана
+const originalShowScreen = window.showScreen;
+window.showScreen = function(screenId) {
+  originalShowScreen(screenId);
+  
+  if (screenId === 'aiScreen') {
+    loadAIChatHistory();
+  }
+};
