@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from http.server import BaseHTTPRequestHandler
 import json
-import base64
+import os
 import requests
 
 from api.auth import require_user_id
@@ -12,10 +12,22 @@ from api.utils import read_json, send_ok, send_error
 from api.logger import log_event
 
 
+# Категории расходов (дубликат из bot.py для избежания циклических импортов)
+EXPENSE_CATEGORIES = {
+    "Алкоголь и Табак": ["к&б", "красное и белое", "пиво", "вино", "wine", "beer", "alcohol", "iqos", "glo", "vape"],
+    "Продукты": ["пятерочка", "перекресток", "магнит", "ашан", "лента", "вкусвилл", "lidl", "aldi", "carrefour", "mercadona", "grocery", "supermarket"],
+    "Кафе и Рестораны": ["кофе", "cafe", "coffee", "restaurant", "burger", "pizza", "sushi", "wolt", "glovo", "deliveroo"],
+    "Транспорт": ["uber", "bolt", "taxi", "метро", "автобус", "train", "bus", "metro", "ticket"],
+    "Авто и Бензин": ["shell", "bp", "repsol", "fuel", "gas", "petrol", "parking", "парковка", "заправка"],
+    "Дом и Связь": ["ikea", "leroy", "internet", "mobile", "vodafone", "orange", "аренда", "жкх", "ремонт"],
+    "Здоровье и Аптека": ["pharmacy", "apteka", "аптека", "doctor", "clinic", "hospital", "лекарства"],
+    "Одежда и Шопинг": ["zara", "uniqlo", "mango", "amazon", "ozon", "wb", "wildberries", "asos", "одежда", "обувь"],
+    "Развлечения": ["netflix", "spotify", "steam", "cinema", "кино", "театр", "youtube", "подписка"],
+}
+
+
 def _get_deepseek_config():
     """Получаем конфиг DeepSeek из переменных окружения"""
-    import os
-    
     api_key = os.environ.get("DEEPSEEK_API_KEY", "").strip()
     model = os.environ.get("DEEPSEEK_MODEL", "deepseek-chat").strip()
     base_url = os.environ.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com").strip()
@@ -139,10 +151,6 @@ def _validate_receipt_data(data: dict) -> tuple[bool, str]:
 
 def _categorize_item(item_name: str, store_name: str = "") -> str:
     """Определяет категорию товара по его названию и магазину"""
-    
-    # Импортируем категории из bot.py
-    from api.bot import EXPENSE_CATEGORIES
-    
     text_to_check = (item_name + " " + store_name).lower()
     
     # Проходим по всем категориям
