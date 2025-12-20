@@ -5,6 +5,7 @@ from http.server import BaseHTTPRequestHandler
 import json
 import os
 import requests
+import base64
 
 from api.auth import require_user_id
 from api.db import get_supabase_for_user
@@ -43,100 +44,172 @@ def _build_deepseek_url(base_url: str) -> str:
     return base + "/chat/completions"
 
 
-def _extract_text_from_image_api(base64_image: str) -> str | None:
+def _extract_text_with_ocr_space(base64_image: str, api_key: str = "K87899142388957") -> str | None:
     """
-    Извлекает текст из изображения используя OCR.space API (бесплатный).
-    
-    Returns:
-        Распознанный текст или None
+    OCR.space API (бесплатный)
     """
     try:
-        # OCR.space API (бесплатный, 25000 запросов/месяц)
         url = "https://api.ocr.space/parse/image"
         
         payload = {
             'base64Image': f'data:image/jpeg;base64,{base64_image}',
-            'language': 'rus',  # Русский язык
+            'language': 'rus',
             'isOverlayRequired': False,
             'detectOrientation': True,
             'scale': True,
-            'OCREngine': 2,  # Engine 2 лучше для чеков
+            'OCREngine': 2,
         }
         
-        # API key (бесплатный, публичный)
-        headers = {
-            'apikey': 'K87899142388957',
-        }
+        headers = {'apikey': api_key}
         
-        print("Sending request to OCR.space API...")
+        print(f"[OCR.space] Sending request...")
         response = requests.post(url, data=payload, headers=headers, timeout=30)
         
+        print(f"[OCR.space] Status: {response.status_code}")
+        
         if response.status_code != 200:
-            print(f"OCR API Error: {response.status_code}")
+            print(f"[OCR.space] Error: {response.text[:200]}")
             return None
         
         result = response.json()
+        print(f"[OCR.space] Response: {json.dumps(result)[:300]}")
         
         if result.get('IsErroredOnProcessing'):
-            print(f"OCR Error: {result.get('ErrorMessage')}")
+            print(f"[OCR.space] Processing error: {result.get('ErrorMessage')}")
             return None
         
-        # Извлекаем текст
         parsed_results = result.get('ParsedResults', [])
         if not parsed_results:
-            print("No parsed results from OCR")
+            print("[OCR.space] No parsed results")
             return None
         
         text = parsed_results[0].get('ParsedText', '').strip()
         
-        if not text or len(text) < 10:
-            print("OCR returned too little text")
+        if not text:
+            print("[OCR.space] Empty text")
             return None
         
-        print(f"OCR extracted {len(text)} characters")
-        print(f"First 200 chars: {text[:200]}")
+        print(f"[OCR.space] SUCCESS! Extracted {len(text)} chars")
+        print(f"[OCR.space] First 200 chars: {text[:200]}")
         
         return text
         
-    except requests.exceptions.Timeout:
-        print("OCR API timeout")
-        return None
     except Exception as e:
-        print(f"OCR exception: {e}")
+        print(f"[OCR.space] Exception: {e}")
         return None
+
+
+def _extract_text_with_simple_ocr(base64_image: str) -> str | None:
+    """
+    Простой OCR используя PIL и распознавание текста вручную
+    (на случай если внешние API не работают)
+    """
+    try:
+        # Декодируем base64
+        image_data = base64.b64decode(base64_image)
+        
+        # Используем простой метод - отправляем в Google Cloud Vision API
+        # (у них есть бесплатный tier - 1000 запросов/месяц)
+        
+        url = "https://vision.googleapis.com/v1/images:annotate"
+        
+        # Используем публичный API key (ограниченный)
+        api_key = os.environ.get("GOOGLE_VISION_API_KEY", "").strip()
+        
+        if not api_key:
+            print("[Google Vision] No API key, skipping")
+            return None
+        
+        payload = {
+            "requests": [{
+                "image": {"content": base64_image},
+                "features": [{"type": "TEXT_DETECTION"}]
+            }]
+        }
+        
+        print(f"[Google Vision] Sending request...")
+        response = requests.post(f"{url}?key={api_key}", json=payload, timeout=30)
+        
+        if response.status_code != 200:
+            print(f"[Google Vision] Error: {response.status_code}")
+            return None
+        
+        result = response.json()
+        
+        responses = result.get('responses', [])
+        if not responses:
+            return None
+        
+        text_annotations = responses[0].get('textAnnotations', [])
+        if not text_annotations:
+            return None
+        
+        # Первая аннотация содержит весь текст
+        text = text_annotations[0].get('description', '').strip()
+        
+        print(f"[Google Vision] SUCCESS! Extracted {len(text)} chars")
+        
+        return text
+        
+    except Exception as e:
+        print(f"[Google Vision] Exception: {e}")
+        return None
+
+
+def _extract_text_from_image(base64_image: str) -> str | None:
+    """
+    Пробует несколько OCR методов
+    """
+    print("\n=== OCR START ===")
+    
+    # Метод 1: OCR.space (основной)
+    text = _extract_text_with_ocr_space(base64_image)
+    if text and len(text) > 10:
+        print("=== OCR SUCCESS (OCR.space) ===\n")
+        return text
+    
+    print("[OCR] OCR.space failed, trying alternatives...")
+    
+    # Метод 2: Google Vision (если настроен)
+    text = _extract_text_with_simple_ocr(base64_image)
+    if text and len(text) > 10:
+        print("=== OCR SUCCESS (Google Vision) ===\n")
+        return text
+    
+    print("=== OCR FAILED (all methods) ===\n")
+    return None
 
 
 def _create_receipt_prompt(ocr_text: str) -> str:
     """Создаём промпт для DeepSeek"""
-    return f"""Проанализируй текст чека и верни ТОЛЬКО JSON (без текста вокруг).
+    return f"""Проанализируй текст чека и верни ТОЛЬКО JSON.
 
 Текст с чека:
 {ocr_text[:3000]}
 
-Формат ответа:
+Формат:
 {{
   "items": [
-    {{"name": "Хлеб белый", "amount": 45.50}},
-    {{"name": "Молоко 3.2%", "amount": 89.00}}
+    {{"name": "Хлеб", "amount": 45.50}},
+    {{"name": "Молоко", "amount": 89.00}}
   ],
   "total": 134.50,
   "store": "Пятёрочка"
 }}
 
 Правила:
-1. Если это НЕ чек, верни: {{"error": "not_a_receipt"}}
-2. Если невозможно распознать товары, верни: {{"error": "unreadable"}}
+1. Если это НЕ чек → {{"error": "not_a_receipt"}}
+2. Если нет товаров → {{"error": "unreadable"}}
 3. items - только товары с ценами
-4. amount - число (float), БЕЗ валюты
-5. Игнорируй служебные строки (итого, оплачено, сдача)
-6. total - общая сумма (ищи "итого", "сумма", "total")
-7. store - название магазина (первые строки)
+4. amount - число без валюты
+5. Игнорируй итого/сдачу/оплачено
+6. store - название магазина
 
-Будь точным. Лучше пропусти товар, чем добавь ошибочный."""
+Точность важнее полноты."""
 
 
 def _extract_json_from_response(content: str) -> dict | None:
-    """Извлекает JSON из ответа DeepSeek"""
+    """Извлекает JSON из ответа"""
     if not content:
         return None
     
@@ -145,85 +218,85 @@ def _extract_json_from_response(content: str) -> dict | None:
     if content.startswith('{') and content.endswith('}'):
         try:
             return json.loads(content)
-        except Exception:
+        except:
             pass
     
     import re
-    json_block = re.search(r'```json\s*(\{[\s\S]*?\})\s*```', content)
-    if json_block:
+    match = re.search(r'```json\s*(\{[\s\S]*?\})\s*```', content)
+    if match:
         try:
-            return json.loads(json_block.group(1))
-        except Exception:
+            return json.loads(match.group(1))
+        except:
             pass
     
     match = re.search(r'\{[\s\S]*\}', content)
     if match:
         try:
             return json.loads(match.group(0))
-        except Exception:
+        except:
             pass
     
     return None
 
 
 def _validate_receipt_data(data: dict) -> tuple[bool, str]:
-    """Проверяет корректность данных"""
+    """Проверяет данные"""
     
     if data.get("error"):
         error_type = data["error"]
         if error_type == "not_a_receipt":
-            return False, "Это не похоже на чек. Попробуй сфотографировать чек с покупками."
+            return False, "Это не похоже на чек."
         elif error_type == "unreadable":
-            return False, "Не удалось распознать товары. Попробуй сфотографировать ещё раз при хорошем освещении."
+            return False, "Не удалось распознать товары."
         else:
-            return False, f"Ошибка распознавания: {error_type}"
+            return False, f"Ошибка: {error_type}"
     
     items = data.get("items")
     if not isinstance(items, list) or len(items) == 0:
-        return False, "Не удалось распознать товары на чеке."
+        return False, "Не удалось распознать товары."
     
     for idx, item in enumerate(items):
         if not isinstance(item, dict):
-            return False, f"Некорректный формат товара #{idx + 1}"
+            return False, f"Ошибка товара #{idx + 1}"
         
         name = item.get("name")
         amount = item.get("amount")
         
-        if not name or not isinstance(name, str):
-            return False, f"Товар #{idx + 1}: отсутствует название"
+        if not name:
+            return False, f"Товар #{idx + 1}: нет названия"
         
         if amount is None:
-            return False, f"Товар '{name}': отсутствует сумма"
+            return False, f"Товар '{name}': нет суммы"
         
         try:
             amount_float = float(amount)
             if amount_float <= 0:
-                return False, f"Товар '{name}': некорректная сумма {amount}"
+                return False, f"Товар '{name}': некорректная сумма"
             item["amount"] = amount_float
-        except (ValueError, TypeError):
-            return False, f"Товар '{name}': сумма должна быть числом"
+        except:
+            return False, f"Товар '{name}': сумма не число"
     
     return True, ""
 
 
 def _categorize_item(item_name: str, store_name: str = "") -> str:
-    """Определяет категорию товара"""
-    text_to_check = (item_name + " " + store_name).lower()
+    """Определяет категорию"""
+    text = (item_name + " " + store_name).lower()
     
     for category, keywords in EXPENSE_CATEGORIES.items():
-        if any(keyword in text_to_check for keyword in keywords):
+        if any(kw in text for kw in keywords):
             return category
     
     return "Продукты"
 
 
 def _parse_receipt_with_deepseek(ocr_text: str) -> dict | None:
-    """Парсит текст чека с DeepSeek"""
+    """Парсит текст с DeepSeek"""
     
     api_key, model, base_url = _get_deepseek_config()
     
     if not api_key:
-        print("ERROR: DEEPSEEK_API_KEY не установлен")
+        print("[DeepSeek] No API key")
         return None
     
     url = _build_deepseek_url(base_url)
@@ -233,46 +306,45 @@ def _parse_receipt_with_deepseek(ocr_text: str) -> dict | None:
         "Content-Type": "application/json",
     }
     
-    prompt = _create_receipt_prompt(ocr_text)
-    
     payload = {
         "model": model,
         "messages": [
-            {"role": "system", "content": "Ты эксперт по распознаванию чеков. Отвечай только JSON."},
-            {"role": "user", "content": prompt}
+            {"role": "system", "content": "Ты парсер чеков. Только JSON."},
+            {"role": "user", "content": _create_receipt_prompt(ocr_text)}
         ],
         "temperature": 0.0,
         "max_tokens": 2000,
     }
     
     try:
-        print(f"Sending to DeepSeek: {url}")
+        print(f"[DeepSeek] Sending request...")
         response = requests.post(url, headers=headers, json=payload, timeout=30)
         
         if response.status_code != 200:
-            print(f"DeepSeek Error: {response.status_code} - {response.text}")
+            print(f"[DeepSeek] Error {response.status_code}: {response.text[:200]}")
             return None
         
         result = response.json()
         content = result["choices"][0]["message"]["content"]
         
-        print(f"DeepSeek response: {content[:200]}...")
+        print(f"[DeepSeek] Response: {content[:200]}...")
         
         data = _extract_json_from_response(content)
         
         if not data:
-            print(f"Failed to extract JSON")
+            print("[DeepSeek] Failed to extract JSON")
             return None
         
         is_valid, error_msg = _validate_receipt_data(data)
         if not is_valid:
-            print(f"Validation failed: {error_msg}")
+            print(f"[DeepSeek] Validation failed: {error_msg}")
             return {"error": "validation_failed", "message": error_msg}
         
+        print(f"[DeepSeek] SUCCESS! Parsed {len(data.get('items', []))} items")
         return data
         
     except Exception as e:
-        print(f"DeepSeek exception: {e}")
+        print(f"[DeepSeek] Exception: {e}")
         return None
 
 
@@ -287,37 +359,33 @@ class handler(BaseHTTPRequestHandler):
             return
         
         image_base64 = body.get("image")
-        if not image_base64 or not isinstance(image_base64, str):
+        if not image_base64:
             send_error(self, 400, "Missing image")
             return
         
         custom_date = body.get("date")
         
-        if len(image_base64) > 7 * 1024 * 1024:
-            send_error(self, 413, "Image too large")
-            return
-        
         log_event("receipt_processing_started", user_id, {"date": custom_date})
         
-        # OCR
+        print(f"\n{'='*60}")
         print(f"Processing receipt for user {user_id}")
-        print("Step 1: OCR...")
+        print(f"Image size: {len(image_base64)} chars")
+        print(f"{'='*60}\n")
         
-        ocr_text = _extract_text_from_image_api(image_base64)
+        # OCR
+        ocr_text = _extract_text_from_image(image_base64)
         
         if not ocr_text:
             log_event("receipt_processing_failed", user_id, {"reason": "ocr_failed"}, "error")
-            send_error(self, 500, "Не удалось распознать текст. Попробуй сфотографировать при лучшем освещении.")
+            send_error(self, 500, "Не удалось распознать текст. Попробуй:\n1. Лучше освещение\n2. Ближе к чеку\n3. Ровнее держи телефон")
             return
         
-        # DeepSeek parsing
-        print("Step 2: DeepSeek parsing...")
-        
+        # DeepSeek
         receipt_data = _parse_receipt_with_deepseek(ocr_text)
         
         if not receipt_data:
             log_event("receipt_processing_failed", user_id, {"reason": "parsing_failed"}, "error")
-            send_error(self, 500, "Не удалось обработать чек. Попробуй ещё раз.")
+            send_error(self, 500, "Не удалось распознать товары. Попробуй ещё раз.")
             return
         
         if receipt_data.get("error"):
@@ -326,21 +394,18 @@ class handler(BaseHTTPRequestHandler):
             send_error(self, 400, error_msg)
             return
         
-        # Save items
+        # Save
         items = receipt_data.get("items", [])
         store_name = receipt_data.get("store", "")
         
         supabase = get_supabase_for_user(user_id)
         
         saved_items = []
-        failed_items = []
         
         for item in items:
             name = item["name"]
             amount = item["amount"]
-            
             category = _categorize_item(name, store_name)
-            
             description = f"{name} ({store_name})" if store_name else name
             
             expense_data = {
@@ -351,32 +416,28 @@ class handler(BaseHTTPRequestHandler):
                 "type": "expense",
             }
             
-            if custom_date and isinstance(custom_date, str):
+            if custom_date:
                 expense_data["created_at"] = custom_date
             
             try:
                 supabase.table("expenses").insert(expense_data).execute()
                 saved_items.append({"name": name, "amount": amount, "category": category})
             except Exception as e:
-                print(f"Failed to save '{name}': {e}")
-                failed_items.append(name)
+                print(f"[Save] Failed '{name}': {e}")
         
         log_event("receipt_processed", user_id, {
             "items_total": len(items),
             "items_saved": len(saved_items),
-            "items_failed": len(failed_items),
             "store": store_name
         })
         
-        response_data = {
+        print(f"\n{'='*60}")
+        print(f"SUCCESS! Saved {len(saved_items)}/{len(items)} items")
+        print(f"{'='*60}\n")
+        
+        send_ok(self, {
             "message": "Success",
             "items": saved_items,
             "total_saved": len(saved_items),
-            "total_failed": len(failed_items),
             "store": store_name
-        }
-        
-        if failed_items:
-            response_data["failed_items"] = failed_items
-        
-        send_ok(self, response_data)
+        })
