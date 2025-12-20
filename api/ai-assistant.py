@@ -1,60 +1,55 @@
-# api/ai-assistant.py
-"""
-AI Финансовый Ассистент
-Использует OpenAI GPT-4 для анализа финансов пользователя
-"""
-from __future__ import annotations
-
+# api/ai-assistant.py - Unified AI endpoint (для бота И для приложения)
 from http.server import BaseHTTPRequestHandler
 import json
 import os
 from datetime import datetime, timedelta
 import requests
 
+from api.auth import require_user_id
 from api.db import get_supabase_for_user
 from api.utils import read_json, send_ok, send_error
 from api.logger import log_event
 
 
-def parse_init_data(init_data: str) -> int | None:
-    """Парсит user_id из initData"""
-    try:
-        # Формат: user={"id":123,...} или user=123
-        if not init_data:
-            return None
-        
-        # Убираем префикс "user="
-        if init_data.startswith('user='):
-            user_data = init_data[5:]
-            
-            # Пробуем распарсить как JSON
-            try:
-                user_obj = json.loads(user_data)
-                return user_obj.get('id')
-            except:
-                # Если не JSON, то просто число
-                try:
-                    return int(user_data)
-                except:
-                    return None
-        
-        return None
-    except Exception as e:
-        print(f"Parse init_data error: {e}")
-        return None
-
-
-def _get_user_financial_context(user_id: int) -> dict:
-    """
-    Собирает финансовый контекст пользователя для AI
-    """
+def get_chat_history(user_id: int, limit: int = 10) -> list:
+    """Получает историю чата из БД"""
     supabase = get_supabase_for_user(user_id)
     
-    # Получаем данные за последние 30 дней
+    try:
+        result = supabase.table("ai_chat_history") \
+            .select("*") \
+            .eq("user_id", user_id) \
+            .order("created_at", desc=True) \
+            .limit(limit) \
+            .execute()
+        
+        return list(reversed(result.data)) if result.data else []
+    except:
+        return []
+
+
+def save_chat_message(user_id: int, role: str, content: str):
+    """Сохраняет сообщение в БД"""
+    supabase = get_supabase_for_user(user_id)
+    
+    try:
+        supabase.table("ai_chat_history").insert({
+            "user_id": user_id,
+            "role": role,
+            "content": content,
+            "created_at": datetime.now().isoformat()
+        }).execute()
+    except Exception as e:
+        print(f"Save chat error: {e}")
+
+
+def get_financial_context(user_id: int) -> dict:
+    """Собирает финансовый контекст"""
+    supabase = get_supabase_for_user(user_id)
     date_from = (datetime.now() - timedelta(days=30)).strftime('%Y-%m-%d')
     
     try:
-        # Расходы и доходы
+        # Транзакции
         result = supabase.table("expenses").select("*").gte("created_at", date_from).execute()
         transactions = result.data
         
@@ -62,68 +57,41 @@ def _get_user_financial_context(user_id: int) -> dict:
         subs_result = supabase.table("subscriptions").select("*").execute()
         subscriptions = subs_result.data
         
-        # Считаем статистику
-        total_income = 0
-        total_expense = 0
+        # Статистика
+        total_income = sum(float(t['amount']) for t in transactions if t['type'] == 'income')
+        total_expense = sum(float(t['amount']) for t in transactions if t['type'] == 'expense')
+        
         categories = {}
-        
         for t in transactions:
-            amount = float(t.get('amount', 0))
-            if t['type'] == 'income':
-                total_income += amount
-            else:
-                total_expense += amount
+            if t['type'] == 'expense':
                 cat = t.get('category', 'Разное')
-                categories[cat] = categories.get(cat, 0) + amount
+                categories[cat] = categories.get(cat, 0) + float(t['amount'])
         
-        balance = total_income - total_expense
-        
-        # Средние траты по категориям
         top_categories = sorted(categories.items(), key=lambda x: x[1], reverse=True)[:5]
         
-        context = {
-            "period": "30 дней",
-            "balance": balance,
+        return {
+            "balance": total_income - total_expense,
             "total_income": total_income,
             "total_expense": total_expense,
-            "top_categories": [{"category": cat, "amount": amt} for cat, amt in top_categories],
-            "subscriptions": [
-                {
-                    "name": s.get('name'),
-                    "amount": s.get('amount'),
-                    "period": s.get('period', 'monthly')
-                }
-                for s in subscriptions
-            ],
-            "transactions_count": len(transactions),
-            "daily_average": round(total_expense / 30, 2) if total_expense > 0 else 0
+            "daily_average": round(total_expense / 30, 2) if total_expense > 0 else 0,
+            "top_categories": [{"category": c, "amount": a} for c, a in top_categories],
+            "subscriptions": [{"name": s['name'], "amount": s['amount']} for s in subscriptions],
+            "transactions_count": len(transactions)
         }
-        
-        return context
-        
     except Exception as e:
-        log_event("context_error", user_id, {"error": str(e)}, "error")
+        print(f"Context error: {e}")
         return {}
 
 
-def _create_system_prompt(context: dict) -> str:
-    """
-    Создаёт системный промпт для AI ассистента
-    """
+def create_system_prompt(context: dict) -> str:
+    """Создаёт системный промпт"""
     
-    top_cats = "\n".join([
-        f"  - {c['category']}: {c['amount']:.2f} ₽"
-        for c in context.get('top_categories', [])
-    ])
+    top_cats = "\n".join([f"  - {c['category']}: {c['amount']:.2f} ₽" for c in context.get('top_categories', [])])
+    subs = "\n".join([f"  - {s['name']}: {s['amount']} ₽" for s in context.get('subscriptions', [])])
     
-    subs = "\n".join([
-        f"  - {s['name']}: {s['amount']} ₽/{s['period']}"
-        for s in context.get('subscriptions', [])
-    ])
-    
-    prompt = f"""Ты — AI финансовый ассистент пользователя. Твоя задача — помогать ему управлять финансами.
+    return f"""Ты — персональный AI финансовый ассистент пользователя.
 
-📊 ФИНАНСОВАЯ СИТУАЦИЯ ПОЛЬЗОВАТЕЛЯ ({context.get('period', 'N/A')}):
+📊 ФИНАНСОВАЯ СИТУАЦИЯ (30 дней):
 
 Баланс: {context.get('balance', 0):.2f} ₽
 Доход: {context.get('total_income', 0):.2f} ₽
@@ -133,102 +101,124 @@ def _create_system_prompt(context: dict) -> str:
 Топ категории расходов:
 {top_cats or '  (нет данных)'}
 
-Активные подписки:
-{subs or '  (нет подписок)'}
+Подписки:
+{subs or '  (нет)'}
 
-Всего операций: {context.get('transactions_count', 0)}
+Транзакций: {context.get('transactions_count', 0)}
 
 ---
 
-ТВОИ ВОЗМОЖНОСТИ:
-✅ Анализировать траты и находить паттерны
-✅ Давать конкретные советы по экономии
-✅ Предупреждать о перерасходе
-✅ Планировать бюджет
-✅ Отвечать на финансовые вопросы
-✅ Искать аномалии в тратах
+🎯 ТВОИ СУПЕРСПОСОБНОСТИ:
 
-СТИЛЬ ОБЩЕНИЯ:
-- Дружелюбный, но профессиональный
-- Конкретные советы с цифрами
-- Никаких абстрактных фраз
-- Используй эмодзи (умеренно)
-- Короткие ответы (2-4 предложения)
+1. **Расчёт стоимости часа работы**
+   - Формула: месячный доход / (рабочие дни × 8 часов)
+   - Помогает оценить покупки в часах работы
 
-ВАЖНО:
-- Опирайся только на реальные данные пользователя
+2. **Советник по покупкам**
+   - Анализируешь стоит ли покупать
+   - Учитываешь доходы, расходы, приоритеты
+   - Предлагаешь альтернативы
+
+3. **Бюджетный планировщик**
+   - Составляешь реалистичные бюджеты
+   - Находишь способы экономии
+   - Предлагаешь финансовые цели
+
+4. **Детектор аномалий**
+   - Находишь необычные траты
+   - Предупреждаешь о перерасходе
+   - Замечаешь паттерны
+
+5. **Калькулятор финансовых решений**
+   - Кредит или накопить?
+   - Вклад или инвестиции?
+   - Сравниваешь варианты с цифрами
+
+💬 СТИЛЬ ОБЩЕНИЯ:
+- Дружелюбный и мотивирующий
+- Конкретные цифры и примеры
+- Никакой воды - только суть
+- Эмодзи для наглядности (умеренно)
+- Короткие ответы (2-4 предложения), длинные только если нужно
+
+🎓 ПРИНЦИПЫ:
+- Опирайся ТОЛЬКО на реальные данные
 - Не придумывай цифры
-- Если данных недостаточно — скажи об этом
+- Если данных мало - скажи об этом
 - Всегда давай практичные советы
+- Помогай принимать осознанные решения
 
 Отвечай на русском языке."""
 
-    return prompt
 
-
-def _chat_with_openai(user_message: str, system_prompt: str) -> str | None:
-    """
-    Отправляет запрос в OpenAI API
-    """
+def chat_with_ai(user_message: str, context: dict, history: list = None) -> str:
+    """Общается с OpenAI"""
     api_key = os.environ.get("OPENAI_API_KEY", "").strip()
-    
     if not api_key:
-        log_event("openai_no_key", 0, {}, "error")
-        return None
+        return "❌ OpenAI API key не настроен"
     
-    url = "https://api.openai.com/v1/chat/completions"
+    # Формируем сообщения с историей
+    messages = [{"role": "system", "content": create_system_prompt(context)}]
     
-    headers = {
-        "Authorization": f"Bearer {api_key}",
-        "Content-Type": "application/json"
-    }
+    # Добавляем последние сообщения из истории
+    if history:
+        for msg in history[-10:]:
+            messages.append({
+                "role": msg.get("role"),
+                "content": msg.get("content")
+            })
     
-    payload = {
-        "model": "gpt-4o-mini",  # Быстрая и дешёвая модель
-        "messages": [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_message}
-        ],
-        "temperature": 0.7,
-        "max_tokens": 500
-    }
+    messages.append({"role": "user", "content": user_message})
     
     try:
-        log_event("openai_request", 0, {"message_length": len(user_message)})
-        
-        response = requests.post(url, headers=headers, json=payload, timeout=30)
+        response = requests.post(
+            "https://api.openai.com/v1/chat/completions",
+            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+            json={
+                "model": "gpt-4o-mini",
+                "messages": messages,
+                "temperature": 0.7,
+                "max_tokens": 1000
+            },
+            timeout=30
+        )
         
         if response.status_code != 200:
-            log_event("openai_error", 0, {
-                "code": response.status_code,
-                "body": response.text[:200]
-            }, "error")
-            return None
+            return f"❌ Ошибка AI: {response.status_code}"
         
         result = response.json()
-        content = result["choices"][0]["message"]["content"]
-        
-        log_event("openai_success", 0, {"response_length": len(content)})
-        
-        return content.strip()
+        return result["choices"][0]["message"]["content"].strip()
         
     except Exception as e:
-        log_event("openai_exception", 0, {"error": str(e)}, "error")
-        return None
+        print(f"AI error: {e}")
+        return "❌ Не удалось связаться с AI"
 
 
 class handler(BaseHTTPRequestHandler):
-    def do_POST(self):
-        """
-        POST /api/ai-assistant
-        Body: { "message": "Как мне сэкономить?" }
-        """
-        # Получаем user_id из заголовка
-        init_data = self.headers.get('X-Tg-Init-Data', '')
-        user_id = parse_init_data(init_data)
-        
+    """
+    Unified AI endpoint:
+    - POST /api/ai-assistant - для бота (простой ответ)
+    - POST /api/ai-assistant?chat=true - для приложения (с историей)
+    - GET /api/ai-assistant?history=true - получить историю
+    """
+    
+    def do_GET(self):
+        """Получение истории чата"""
+        user_id = require_user_id(self)
         if user_id is None:
-            send_error(self, 401, "Unauthorized")
+            return
+        
+        history = get_chat_history(user_id, limit=50)
+        
+        send_ok(self, {
+            "history": history,
+            "count": len(history)
+        })
+    
+    def do_POST(self):
+        """Отправка сообщения"""
+        user_id = require_user_id(self)
+        if user_id is None:
             return
         
         body = read_json(self)
@@ -236,34 +226,33 @@ class handler(BaseHTTPRequestHandler):
             return
         
         user_message = body.get("message", "").strip()
-        
         if not user_message:
             send_error(self, 400, "Message is required")
             return
         
-        log_event("ai_chat_started", user_id, {"message": user_message[:100]})
+        # Определяем режим: с историей (для приложения) или без (для бота)
+        with_history = body.get("with_history", True)
         
-        # Собираем контекст
-        context = _get_user_financial_context(user_id)
+        log_event("ai_message", user_id, {"message": user_message[:100]})
         
-        if not context:
-            send_error(self, 500, "Не удалось загрузить финансовые данные")
-            return
+        # Получаем контекст
+        context = get_financial_context(user_id)
         
-        # Создаём системный промпт
-        system_prompt = _create_system_prompt(context)
+        # Получаем историю если нужно
+        history = get_chat_history(user_id, limit=10) if with_history else None
         
-        # Общаемся с OpenAI
-        ai_response = _chat_with_openai(user_message, system_prompt)
+        # Сохраняем сообщение пользователя (только если с историей)
+        if with_history:
+            save_chat_message(user_id, "user", user_message)
         
-        if not ai_response:
-            send_error(self, 500, "AI временно недоступен. Попробуй позже.")
-            return
+        # Получаем ответ AI
+        ai_response = chat_with_ai(user_message, context, history)
         
-        log_event("ai_chat_success", user_id, {
-            "user_msg_len": len(user_message),
-            "ai_msg_len": len(ai_response)
-        })
+        # Сохраняем ответ AI (только если с историей)
+        if with_history:
+            save_chat_message(user_id, "assistant", ai_response)
+        
+        log_event("ai_response", user_id, {"response_len": len(ai_response)})
         
         send_ok(self, {
             "message": ai_response,
