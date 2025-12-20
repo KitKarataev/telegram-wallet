@@ -1,40 +1,22 @@
-from __future__ import annotations
-
+# api/bot.py
 from http.server import BaseHTTPRequestHandler
 import os
 import json
-import re
 import requests
+from datetime import datetime
 
-from api.db import get_supabase_admin
-from api.utils import read_json
+from telegram import Update, KeyboardButton, ReplyKeyboardMarkup, InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
+from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters, CallbackQueryHandler
 
+# Конфигурация
+TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
+API_BASE_URL = os.environ.get("API_BASE_URL", "https://your-app.vercel.app")
+WEBAPP_URL = f"{API_BASE_URL}/index.html"
 
-def _get_env(name: str, default: str | None = None) -> str:
-    v = os.environ.get(name)
-    if v:
-        return v
-    if default is not None:
-        return default
-    raise RuntimeError(f"Missing required environment variable: {name}")
+# AI режим: словарь пользователей в AI чате
+AI_WAITING_USERS = {}
 
-
-TG_TOKEN = _get_env("TELEGRAM_TOKEN")
-WEBHOOK_SECRET = _get_env("TELEGRAM_WEBHOOK_SECRET")
-WEBHOOK_SECRET_HEADER = "X-Telegram-Bot-Api-Secret-Token"
-
-DEEPSEEK_API_KEY = (os.environ.get("DEEPSEEK_API_KEY") or "").strip()
-DEEPSEEK_MODEL = (os.environ.get("DEEPSEEK_MODEL") or "deepseek-chat").strip()
-DEEPSEEK_BASE_URL = (os.environ.get("DEEPSEEK_BASE_URL") or "https://api.deepseek.com").strip()
-
-
-SYMBOLS = {"RUB": "₽", "USD": "$", "EUR": "€"}
-
-ALLOWED_CATEGORIES = [
-    "Алкоголь и Табак", "Продукты", "Кафе и Рестораны", "Транспорт", "Авто и Бензин",
-    "Дом и Связь", "Здоровье и Аптека", "Одежда и Шопинг", "Развлечения", "Разное", "Доход"
-]
-
+# Категории расходов (для распознавания текста)
 EXPENSE_CATEGORIES = {
     "Алкоголь и Табак": ["к&б", "красное и белое", "пиво", "вино", "wine", "beer", "alcohol", "iqos", "glo", "vape"],
     "Продукты": ["пятерочка", "перекресток", "магнит", "ашан", "лента", "вкусвилл", "lidl", "aldi", "carrefour", "mercadona", "grocery", "supermarket"],
@@ -47,371 +29,467 @@ EXPENSE_CATEGORIES = {
     "Развлечения": ["netflix", "spotify", "steam", "cinema", "кино", "театр", "youtube", "подписка"],
 }
 
-
-def send_telegram(chat_id, text: str, reply_markup=None) -> None:
-    url = f"https://api.telegram.org/bot{TG_TOKEN}/sendMessage"
-    payload = {"chat_id": chat_id, "text": text}
-    if reply_markup:
-        payload["reply_markup"] = reply_markup
-    try:
-        r = requests.post(url, json=payload, timeout=10)
-        if r.status_code != 200:
-            raise RuntimeError(f"Telegram sendMessage failed: {r.status_code} {r.text}")
-    except Exception as e:
-        print("send_telegram ERROR:", e)
+INCOME_CATEGORIES = {
+    "Зарплата": ["зарплата", "salary", "зп"],
+    "Фриланс": ["фриланс", "freelance", "upwork", "фл"],
+    "Инвестиции": ["дивиденды", "dividends", "акции", "stocks"],
+    "Подарки": ["подарок", "gift", "др"],
+    "Другое": []
+}
 
 
-def get_quick_buttons_keyboard(user_id: int):
-    """Получает быстрые кнопки пользователя и формирует клавиатуру"""
-    try:
-        supabase = get_supabase_admin()
-        res = supabase.table("quick_buttons").select("buttons").eq("user_id", user_id).execute()
-        
-        if res.data and res.data[0].get("buttons"):
-            buttons_data = res.data[0]["buttons"]
-            
-            # Формируем клавиатуру 2x3
-            keyboard = []
-            row = []
-            for i, button in enumerate(buttons_data):
-                if button.strip():
-                    row.append({"text": button})
-                    if len(row) == 2 or i == len(buttons_data) - 1:
-                        keyboard.append(row)
-                        row = []
-            
-            if keyboard:
-                return {
-                    "keyboard": keyboard,
-                    "resize_keyboard": True,
-                    "one_time_keyboard": False
-                }
-    except Exception as e:
-        print(f"Error getting quick buttons: {e}")
+# ==================== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ====================
+
+def parse_expense_text(text: str) -> dict | None:
+    """
+    Парсит текст вида: "500 Кофе" или "Такси 300"
+    Возвращает: {"amount": 500, "description": "Кофе", "category": "Кафе и Рестораны"}
+    """
+    text = text.strip()
+    parts = text.split(maxsplit=1)
     
-    return None
-
-
-def _extract_amount_simple(text: str) -> int | None:
-    digits = "".join(ch for ch in text if ch.isdigit())
-    if not digits:
+    if len(parts) < 2:
         return None
+    
+    # Пробуем оба порядка: "500 Кофе" и "Кофе 500"
+    amount = None
+    description = None
+    
     try:
-        amt = int(digits)
-        if amt <= 0 or amt > 10_000_000:
+        amount = float(parts[0].replace(',', '.'))
+        description = parts[1]
+    except ValueError:
+        try:
+            amount = float(parts[1].replace(',', '.'))
+            description = parts[0]
+        except ValueError:
             return None
-        return amt
-    except Exception:
+    
+    if amount is None or description is None:
         return None
-
-
-def parse_fallback(text_raw: str) -> dict | None:
-    text = (text_raw or "").lower().strip()
-    amount = _extract_amount_simple(text)
-    if amount is None:
-        return None
-
-    record_type = "expense"
+    
+    # Определяем категорию
     category = "Разное"
-
-    income_words = ["зарплата", "зп", "аванс", "приход", "перевод", "кэшбэк", "доход", "salary", "deposit"]
-    if any(w in text for w in income_words):
-        record_type = "income"
-        category = "Доход"
-    else:
-        for cat_name, keywords in EXPENSE_CATEGORIES.items():
-            if any(k in text for k in keywords):
-                category = cat_name
-                break
-
-    desc = re.sub(r"\s+", " ", text_raw).strip() if text_raw else "Запись"
-    return {"amount": amount, "type": record_type, "category": category, "description": desc}
-
-
-def _deepseek_url() -> str:
-    base = DEEPSEEK_BASE_URL.rstrip("/")
-    if not base.endswith("/v1"):
-        base = base + "/v1"
-    return base + "/chat/completions"
-
-
-def _extract_json_object(s: str) -> dict | None:
-    if not s:
-        return None
-    s = s.strip()
-
-    if s.startswith('{') and s.endswith('}'):
-        try:
-            obj = json.loads(s)
-            return obj if isinstance(obj, dict) else None
-        except Exception:
-            pass
-
-    json_block = re.search(r'```json\s*(\{[\s\S]*?\})\s*```', s)
-    if json_block:
-        try:
-            obj = json.loads(json_block.group(1))
-            return obj if isinstance(obj, dict) else None
-        except Exception:
-            pass
-
-    m = re.search(r'\{[\s\S]*\}', s)
-    if not m:
-        return None
-    try:
-        obj = json.loads(m.group(0))
-        return obj if isinstance(obj, dict) else None
-    except Exception:
-        return None
-
-
-def parse_with_deepseek(text_raw: str) -> dict | None:
-    if not DEEPSEEK_API_KEY:
-        print("DeepSeek disabled: DEEPSEEK_API_KEY is empty")
-        return None
-
-    url = _deepseek_url()
-    headers = {
-        "Authorization": f"Bearer {DEEPSEEK_API_KEY}",
-        "Content-Type": "application/json",
+    desc_lower = description.lower()
+    
+    for cat, keywords in EXPENSE_CATEGORIES.items():
+        if any(kw in desc_lower for kw in keywords):
+            category = cat
+            break
+    
+    return {
+        "amount": amount,
+        "description": description,
+        "category": category
     }
 
-    prompt = f"""
-Верни ТОЛЬКО JSON (без текста вокруг). Финансовая запись пользователя:
 
-{text_raw}
+def parse_income_text(text: str) -> dict | None:
+    """Парсит доход"""
+    result = parse_expense_text(text)
+    if not result:
+        return None
+    
+    # Определяем категорию дохода
+    category = "Другое"
+    desc_lower = result["description"].lower()
+    
+    for cat, keywords in INCOME_CATEGORIES.items():
+        if any(kw in desc_lower for kw in keywords):
+            category = cat
+            break
+    
+    result["category"] = category
+    return result
 
-Формат:
-{{
-  "amount": 123,
-  "type": "expense" | "income",
-  "category": {json.dumps(ALLOWED_CATEGORIES, ensure_ascii=False)},
-  "description": "коротко без суммы"
-}}
 
-Если суммы нет, верни: {{"error":"no_amount"}}
+# ==================== КОМАНДЫ БОТА ====================
+
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Команда /start"""
+    keyboard = [
+        [KeyboardButton(text="💰 Открыть приложение", web_app=WebAppInfo(url=WEBAPP_URL))]
+    ]
+    reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+    
+    await update.message.reply_text(
+        "👋 *Привет! Я твой финансовый помощник.*\n\n"
+        "📱 Нажми кнопку ниже чтобы открыть приложение\n"
+        "💬 Или используй команды:\n\n"
+        "/help - список команд\n"
+        "/ai - 🤖 AI финансовый ассистент\n"
+        "/stats - статистика\n"
+        "/quick - быстрое добавление",
+        parse_mode='Markdown',
+        reply_markup=reply_markup
+    )
+
+
+async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Команда /help"""
+    help_text = """
+🤖 *Доступные команды:*
+
+📊 *Основные:*
+/start - главное меню
+/stats - моя статистика
+/quick - быстрые кнопки
+
+💬 *Быстрое добавление:*
+Просто напиши в чат:
+• `500 Кофе` - расход
+• `+ 50000 Зарплата` - доход
+
+🤖 *AI Ассистент:*
+/ai - запустить AI помощника
+/cancel - выйти из AI режима
+
+💡 *Примеры для AI:*
+• "Где я больше всего трачу?"
+• "Как сэкономить 5000₽?"
+• "Составь бюджет на месяц"
+• "Хватит ли денег до конца месяца?"
+
+📱 *Приложение:*
+Нажми кнопку "Открыть приложение" для полного функционала
 """
+    await update.message.reply_text(help_text, parse_mode='Markdown')
 
-    payload = {
-        "model": DEEPSEEK_MODEL,
-        "messages": [
-            {"role": "system", "content": "Ты парсер трат/доходов для финансового бота. Отвечай только JSON."},
-            {"role": "user", "content": prompt},
-        ],
-        "temperature": 0.0,
-        "max_tokens": 250,
-        "stream": False,
-    }
 
+async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Команда /stats - показывает статистику"""
+    user_id = update.effective_user.id
+    
     try:
-        r = requests.post(url, headers=headers, json=payload, timeout=25)
-        if r.status_code != 200:
-            print("DeepSeek HTTP ERROR:", r.status_code, r.text)
-            return None
+        response = requests.get(
+            f"{API_BASE_URL}/api/stats?period=month",
+            headers={"X-Tg-Init-Data": f"user={user_id}"},
+            timeout=10
+        )
+        
+        if response.status_code != 200:
+            await update.message.reply_text("❌ Не удалось загрузить статистику")
+            return
+        
+        data = response.json().get('data', {})
+        
+        balance = data.get('total_balance', 0)
+        income = data.get('period', {}).get('income', 0)
+        expense = data.get('period', {}).get('expense', 0)
+        currency = data.get('currency', 'RUB')
+        
+        symbol = {"RUB": "₽", "USD": "$", "EUR": "€"}.get(currency, "₽")
+        
+        stats_text = f"""
+📊 *Твоя статистика за месяц:*
 
-        j = r.json()
-        content = j["choices"][0]["message"].get("content", "") or ""
-        data = _extract_json_object(content)
+💰 Баланс: `{balance} {symbol}`
+📈 Доход: `+{income} {symbol}`
+📉 Расход: `-{expense} {symbol}`
 
-        if not isinstance(data, dict):
-            print("DeepSeek parse: not a JSON object. content=", content[:200])
-            return None
-
-        if data.get("error") == "no_amount":
-            return None
-
-        amount = data.get("amount")
-        if not isinstance(amount, int) or amount <= 0:
-            print("DeepSeek parse invalid amount:", data)
-            return None
-
-        rtype = data.get("type")
-        if rtype not in ("income", "expense"):
-            rtype = "expense"
-
-        category = data.get("category") or ("Доход" if rtype == "income" else "Разное")
-        if category not in ALLOWED_CATEGORIES:
-            category = "Доход" if rtype == "income" else "Разное"
-
-        desc = (data.get("description") or "").strip()
-        desc = re.sub(r"\s+", " ", desc)
-        if not desc:
-            desc = re.sub(r"\s+", " ", text_raw).strip() if text_raw else "Запись"
-
-        return {"amount": amount, "type": rtype, "category": category, "description": desc}
-
+📱 Открой приложение для подробной статистики
+"""
+        
+        await update.message.reply_text(stats_text, parse_mode='Markdown')
+        
     except Exception as e:
-        print("DeepSeek EXCEPTION:", e)
-        return None
+        print(f"Stats error: {e}")
+        await update.message.reply_text("❌ Ошибка при загрузке статистики")
 
 
-# Временное хранилище ожидания суммы для кнопок
-waiting_for_amount = {}
+async def quick_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Команда /quick - показывает быстрые кнопки"""
+    user_id = update.effective_user.id
+    
+    try:
+        response = requests.get(
+            f"{API_BASE_URL}/api/quick-buttons",
+            headers={"X-Tg-Init-Data": f"user={user_id}"},
+            timeout=10
+        )
+        
+        if response.status_code != 200:
+            await update.message.reply_text("❌ Не удалось загрузить кнопки")
+            return
+        
+        data = response.json().get('data', {})
+        buttons = data.get('buttons', [])
+        
+        if not buttons:
+            await update.message.reply_text(
+                "У тебя пока нет быстрых кнопок.\n\n"
+                "Настрой их в приложении: Настройки → Быстрые кнопки"
+            )
+            return
+        
+        keyboard = []
+        for i in range(0, len(buttons), 2):
+            row = []
+            row.append(InlineKeyboardButton(buttons[i], callback_data=f"quick_{i}"))
+            if i + 1 < len(buttons):
+                row.append(InlineKeyboardButton(buttons[i + 1], callback_data=f"quick_{i+1}"))
+            keyboard.append(row)
+        
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        await update.message.reply_text(
+            "⚡️ *Быстрые кнопки:*\n\nВыбери действие:",
+            parse_mode='Markdown',
+            reply_markup=reply_markup
+        )
+        
+    except Exception as e:
+        print(f"Quick buttons error: {e}")
+        await update.message.reply_text("❌ Ошибка загрузки кнопок")
 
+
+async def quick_button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработчик нажатий на быстрые кнопки"""
+    query = update.callback_query
+    await query.answer()
+    
+    user_id = update.effective_user.id
+    button_index = int(query.data.replace("quick_", ""))
+    
+    try:
+        # Получаем кнопки пользователя
+        response = requests.get(
+            f"{API_BASE_URL}/api/quick-buttons",
+            headers={"X-Tg-Init-Data": f"user={user_id}"},
+            timeout=10
+        )
+        
+        if response.status_code != 200:
+            await query.edit_message_text("❌ Ошибка")
+            return
+        
+        data = response.json().get('data', {})
+        buttons = data.get('buttons', [])
+        
+        if button_index >= len(buttons):
+            await query.edit_message_text("❌ Кнопка не найдена")
+            return
+        
+        button_text = buttons[button_index]
+        
+        # Парсим текст кнопки
+        parsed = parse_expense_text(button_text)
+        
+        if not parsed:
+            await query.edit_message_text(f"❌ Не удалось распознать: {button_text}")
+            return
+        
+        # Добавляем расход
+        add_response = requests.post(
+            f"{API_BASE_URL}/api/index",
+            headers={"X-Tg-Init-Data": f"user={user_id}"},
+            json={
+                "text": button_text,
+                "type": "expense",
+                "date": datetime.now().strftime('%Y-%m-%d')
+            },
+            timeout=10
+        )
+        
+        if add_response.status_code == 200:
+            await query.edit_message_text(
+                f"✅ Добавлено:\n"
+                f"💸 -{parsed['amount']} ₽\n"
+                f"📝 {parsed['description']}\n"
+                f"📂 {parsed['category']}"
+            )
+        else:
+            await query.edit_message_text("❌ Не удалось добавить")
+        
+    except Exception as e:
+        print(f"Quick callback error: {e}")
+        await query.edit_message_text("❌ Ошибка")
+
+
+# ==================== AI АССИСТЕНТ ====================
+
+async def handle_ai_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Команда /ai - запуск AI финансового ассистента"""
+    user_id = update.effective_user.id
+    
+    # Активируем AI режим для пользователя
+    AI_WAITING_USERS[user_id] = True
+    
+    await update.message.reply_text(
+        "🤖 *AI Финансовый Ассистент активирован!*\n\n"
+        "Теперь я буду анализировать твои финансы и давать персональные советы.\n\n"
+        "💡 *Примеры вопросов:*\n"
+        "• Где я больше всего трачу?\n"
+        "• Как сэкономить 5000 рублей?\n"
+        "• Составь бюджет на следующий месяц\n"
+        "• Хватит ли мне денег до конца месяца?\n"
+        "• Какие подписки мне отменить?\n"
+        "• Найди аномалии в моих тратах\n\n"
+        "_Чтобы выйти, напиши /cancel_",
+        parse_mode='Markdown'
+    )
+
+
+async def handle_ai_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Команда /cancel - выход из AI режима"""
+    user_id = update.effective_user.id
+    
+    if user_id in AI_WAITING_USERS:
+        del AI_WAITING_USERS[user_id]
+        await update.message.reply_text(
+            "✅ AI ассистент деактивирован.\n\n"
+            "Используй /ai чтобы запустить снова."
+        )
+    else:
+        await update.message.reply_text(
+            "AI ассистент и так не был активен.\n\n"
+            "Используй /ai чтобы запустить."
+        )
+
+
+async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    Обработчик текстовых сообщений
+    - Если AI режим активен → отправляет в AI
+    - Если нет → парсит как расход/доход
+    """
+    user_id = update.effective_user.id
+    text = update.message.text.strip()
+    
+    # Проверяем AI режим
+    if user_id in AI_WAITING_USERS:
+        # Режим AI чата
+        await update.message.chat.send_action(action="typing")
+        
+        try:
+            response = requests.post(
+                f"{API_BASE_URL}/api/ai-assistant",
+                json={"message": text},
+                headers={"X-Tg-Init-Data": f"user={user_id}"},
+                timeout=30
+            )
+            
+            if response.status_code != 200:
+                await update.message.reply_text(
+                    "❌ Произошла ошибка при обращении к AI.\n\n"
+                    "Попробуй ещё раз или напиши /cancel"
+                )
+                return
+            
+            data = response.json().get('data', {})
+            ai_message = data.get('message', 'Не удалось получить ответ от AI')
+            
+            # Отправляем ответ AI
+            await update.message.reply_text(
+                f"🤖 *AI Ассистент:*\n\n{ai_message}",
+                parse_mode='Markdown'
+            )
+            
+        except Exception as e:
+            print(f"AI error: {e}")
+            await update.message.reply_text(
+                "❌ Не удалось связаться с AI. Попробуй позже или напиши /cancel"
+            )
+        
+        return
+    
+    # Обычный режим - парсим как расход/доход
+    is_income = text.startswith('+')
+    if is_income:
+        text = text[1:].strip()
+    
+    parsed = parse_income_text(text) if is_income else parse_expense_text(text)
+    
+    if not parsed:
+        # Не смогли распознать - показываем подсказку
+        await update.message.reply_text(
+            "❓ Не понял команду.\n\n"
+            "Попробуй так:\n"
+            "• `500 Кофе` - расход\n"
+            "• `+ 50000 Зарплата` - доход\n\n"
+            "Или используй /help для списка команд\n"
+            "Или /ai для AI помощника",
+            parse_mode='Markdown'
+        )
+        return
+    
+    # Добавляем операцию
+    try:
+        response = requests.post(
+            f"{API_BASE_URL}/api/index",
+            headers={"X-Tg-Init-Data": f"user={user_id}"},
+            json={
+                "text": f"{parsed['amount']} {parsed['description']}",
+                "type": "income" if is_income else "expense",
+                "date": datetime.now().strftime('%Y-%m-%d')
+            },
+            timeout=10
+        )
+        
+        if response.status_code == 200:
+            emoji = "📈" if is_income else "💸"
+            sign = "+" if is_income else "-"
+            
+            await update.message.reply_text(
+                f"✅ Добавлено:\n"
+                f"{emoji} {sign}{parsed['amount']} ₽\n"
+                f"📝 {parsed['description']}\n"
+                f"📂 {parsed['category']}"
+            )
+        else:
+            await update.message.reply_text("❌ Не удалось добавить операцию")
+    
+    except Exception as e:
+        print(f"Add operation error: {e}")
+        await update.message.reply_text("❌ Ошибка при добавлении")
+
+
+# ==================== MAIN ====================
+
+def main():
+    """Запуск бота"""
+    if not TELEGRAM_BOT_TOKEN:
+        print("ERROR: TELEGRAM_BOT_TOKEN not set")
+        return
+    
+    application = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
+    
+    # Команды
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("help", help_command))
+    application.add_handler(CommandHandler("stats", stats_command))
+    application.add_handler(CommandHandler("quick", quick_command))
+    
+    # AI команды
+    application.add_handler(CommandHandler("ai", handle_ai_command))
+    application.add_handler(CommandHandler("cancel", handle_ai_cancel))
+    
+    # Callback кнопки
+    application.add_handler(CallbackQueryHandler(quick_button_callback, pattern="^quick_"))
+    
+    # Обработчик текста (ВАЖНО: добавляется в самом конце!)
+    application.add_handler(MessageHandler(
+        filters.TEXT & ~filters.COMMAND,
+        handle_text_message
+    ))
+    
+    print("Bot started polling...")
+    application.run_polling(allowed_updates=Update.ALL_TYPES)
+
+
+# ==================== VERCEL HANDLER ====================
 
 class handler(BaseHTTPRequestHandler):
     def do_POST(self):
-        secret = self.headers.get(WEBHOOK_SECRET_HEADER, "")
-        if secret != WEBHOOK_SECRET:
-            self.send_response(401)
-            self.end_headers()
-            self.wfile.write(b"Unauthorized")
-            return
-
-        body = read_json(self)
-        if body is None:
-            return
-
-        message = body.get("message")
-        if not isinstance(message, dict):
-            self.send_response(200); self.end_headers(); self.wfile.write(b"OK"); return
-
-        chat = message.get("chat") or {}
-        chat_id = chat.get("id")
-        if chat_id is None:
-            self.send_response(200); self.end_headers(); self.wfile.write(b"OK"); return
-
-        text_raw = message.get("text") or ""
-        if not str(text_raw).strip():
-            self.send_response(200); self.end_headers(); self.wfile.write(b"OK"); return
-
-        supabase = get_supabase_admin()
-
-        # Currency
-        currency_code = "RUB"
-        try:
-            user_settings = (
-                supabase.table("user_settings")
-                .select("currency")
-                .eq("user_id", chat_id)
-                .execute()
-            )
-            if user_settings.data:
-                currency_code = user_settings.data[0].get("currency") or "RUB"
-        except Exception as e:
-            print("Supabase settings ERROR:", e)
-
-        symbol = SYMBOLS.get(currency_code, "₽")
-
-        # ОБРАБОТКА БЫСТРЫХ КНОПОК
-        # Проверяем, ждём ли мы сумму от пользователя
-        if chat_id in waiting_for_amount:
-            button_name = waiting_for_amount[chat_id]
-            amount = _extract_amount_simple(text_raw)
-            
-            if amount:
-                # Сохраняем трату
-                try:
-                    supabase.table("expenses").insert({
-                        "user_id": chat_id,
-                        "amount": amount,
-                        "category": "Разное",
-                        "description": button_name,
-                        "type": "expense",
-                    }).execute()
-                    
-                    send_telegram(chat_id, f"💸 {button_name}: {amount}{symbol}\n✅ Сохранено", 
-                                get_quick_buttons_keyboard(chat_id))
-                    del waiting_for_amount[chat_id]
-                except Exception as e:
-                    print("Supabase insert ERROR:", e)
-                    send_telegram(chat_id, "Ошибка при сохранении. Попробуй ещё раз.",
-                                get_quick_buttons_keyboard(chat_id))
-                    del waiting_for_amount[chat_id]
-            else:
-                send_telegram(chat_id, "Введи сумму числом:",
-                            get_quick_buttons_keyboard(chat_id))
-            
-            self.send_response(200); self.end_headers(); self.wfile.write(b"OK"); return
-
-        # Проверяем, это быстрая кнопка?
-        try:
-            quick_buttons_res = supabase.table("quick_buttons").select("buttons").eq("user_id", chat_id).execute()
-            if quick_buttons_res.data and quick_buttons_res.data[0].get("buttons"):
-                user_buttons = quick_buttons_res.data[0]["buttons"]
-                
-                for button in user_buttons:
-                    if not button.strip():
-                        continue
-                    
-                    # Проверяем формат "Название Сумма"
-                    parts = button.strip().split()
-                    if len(parts) >= 2:
-                        button_name = " ".join(parts[:-1])
-                        button_amount_str = parts[-1]
-                        
-                        # Если последняя часть - число, то это кнопка с суммой
-                        if button_amount_str.isdigit():
-                            button_amount = int(button_amount_str)
-                            
-                            # Проверяем точное совпадение
-                            if text_raw.strip() == button:
-                                try:
-                                    supabase.table("expenses").insert({
-                                        "user_id": chat_id,
-                                        "amount": button_amount,
-                                        "category": "Разное",
-                                        "description": button_name,
-                                        "type": "expense",
-                                    }).execute()
-                                    
-                                    send_telegram(chat_id, f"💸 {button_name}: {button_amount}{symbol}\n✅ Сохранено",
-                                                get_quick_buttons_keyboard(chat_id))
-                                except Exception as e:
-                                    print("Supabase insert ERROR:", e)
-                                    send_telegram(chat_id, "Ошибка при сохранении. Попробуй ещё раз.",
-                                                get_quick_buttons_keyboard(chat_id))
-                                
-                                self.send_response(200); self.end_headers(); self.wfile.write(b"OK"); return
-                    
-                    # Кнопка без суммы - совпадение с текстом
-                    if text_raw.strip() == button.strip():
-                        waiting_for_amount[chat_id] = button.strip()
-                        send_telegram(chat_id, f"💸 {button.strip()}\nВведи сумму:",
-                                    get_quick_buttons_keyboard(chat_id))
-                        self.send_response(200); self.end_headers(); self.wfile.write(b"OK"); return
+        """Webhook для Telegram (если используешь webhook вместо polling)"""
+        content_length = int(self.headers.get('Content-Length', 0))
+        body = self.rfile.read(content_length)
         
-        except Exception as e:
-            print("Quick buttons check ERROR:", e)
-
-        # Обычная обработка (не быстрая кнопка)
-        parsed = parse_with_deepseek(text_raw)
-        used_ai = parsed is not None
-
-        if not parsed:
-            parsed = parse_fallback(text_raw)
-            used_ai = False
-
-        if parsed is None:
-            send_telegram(chat_id, f"Напиши сумму (Валюта: {currency_code}). Например: 450 кофе",
-                        get_quick_buttons_keyboard(chat_id))
-            self.send_response(200); self.end_headers(); self.wfile.write(b"OK"); return
-
-        amount = parsed["amount"]
-        record_type = parsed["type"]
-        category = parsed["category"]
-        description = parsed["description"]
-
-        # Save
-        try:
-            supabase.table("expenses").insert({
-                "user_id": chat_id,
-                "amount": amount,
-                "category": category,
-                "description": description,
-                "type": record_type,
-            }).execute()
-        except Exception as e:
-            print("Supabase insert ERROR:", e)
-            send_telegram(chat_id, "Ошибка при сохранении. Попробуй ещё раз.",
-                        get_quick_buttons_keyboard(chat_id))
-            self.send_response(200); self.end_headers(); self.wfile.write(b"OK"); return
-
-        icon = "💰" if record_type == "income" else "💸"
-        mode = "🤖 AI" if used_ai else "🧩 Fallback"
-        send_telegram(chat_id, f"{icon} {category}: {amount}{symbol}\n{mode}",
-                    get_quick_buttons_keyboard(chat_id))
-
         self.send_response(200)
+        self.send_header('Content-type', 'application/json')
         self.end_headers()
-        self.wfile.write(b"OK")
+        self.wfile.write(json.dumps({"ok": True}).encode())
+
+
+if __name__ == "__main__":
+    main()
