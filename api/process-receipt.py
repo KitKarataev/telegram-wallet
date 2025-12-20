@@ -7,6 +7,7 @@ import os
 import requests
 import re
 import base64
+from io import BytesIO
 
 from api.auth import require_user_id
 from api.db import get_supabase_for_user
@@ -21,16 +22,68 @@ EXPENSE_CATEGORIES = {
 }
 
 
-def _ocr_with_ocr_space(base64_image: str) -> str | None:
+def _compress_image_for_ocr(base64_image: str, max_size_kb: int = 900) -> str | None:
     """
-    OCR.space API - проверенный рабочий вариант
+    Сжимает изображение до нужного размера для OCR
     """
     try:
+        from PIL import Image
+        
+        # Декодируем base64
+        img_data = base64.b64decode(base64_image)
+        img = Image.open(BytesIO(img_data))
+        
+        # Конвертируем в RGB если нужно
+        if img.mode in ('RGBA', 'LA', 'P'):
+            img = img.convert('RGB')
+        
+        # Уменьшаем разрешение (для OCR достаточно 1024px)
+        max_dimension = 1024
+        if max(img.size) > max_dimension:
+            ratio = max_dimension / max(img.size)
+            new_size = tuple(int(dim * ratio) for dim in img.size)
+            img = img.resize(new_size, Image.Resampling.LANCZOS)
+        
+        # Сжимаем с разным качеством пока не влезем в лимит
+        for quality in [85, 75, 65, 55, 45]:
+            buffer = BytesIO()
+            img.save(buffer, format='JPEG', quality=quality, optimize=True)
+            
+            size_kb = len(buffer.getvalue()) / 1024
+            
+            if size_kb <= max_size_kb:
+                compressed_b64 = base64.b64encode(buffer.getvalue()).decode('utf-8')
+                log_event("image_compressed", 0, {
+                    "original_kb": len(base64_image) * 3 / 4 / 1024,
+                    "compressed_kb": size_kb,
+                    "quality": quality
+                })
+                return compressed_b64
+        
+        # Если даже с качеством 45 не влезли - возвращаем как есть
+        log_event("compression_failed", 0, {"size_kb": size_kb}, "warning")
+        return base64_image
+        
+    except ImportError:
+        log_event("pil_not_available", 0, {}, "warning")
+        return base64_image
+    except Exception as e:
+        log_event("compression_error", 0, {"error": str(e)}, "error")
+        return base64_image
+
+
+def _ocr_with_ocr_space(base64_image: str) -> str | None:
+    """
+    OCR.space API
+    """
+    try:
+        # Сжимаем изображение для OCR
+        compressed_image = _compress_image_for_ocr(base64_image, max_size_kb=900)
+        
         url = "https://api.ocr.space/parse/image"
         
-        # Формируем данные как form-data (не JSON!)
         payload = {
-            'base64Image': f'data:image/jpeg;base64,{base64_image}',
+            'base64Image': f'data:image/jpeg;base64,{compressed_image}',
             'language': 'rus',
             'isOverlayRequired': 'false',
             'detectOrientation': 'true',
@@ -38,14 +91,12 @@ def _ocr_with_ocr_space(base64_image: str) -> str | None:
             'OCREngine': '2',
         }
         
-        # Используем бесплатный API key
         headers = {
             'apikey': 'K87899142388957',
         }
         
         log_event("ocr_request", 0, {"service": "ocr.space"})
         
-        # ВАЖНО: используем data (form-data), а не json!
         response = requests.post(url, data=payload, headers=headers, timeout=30)
         
         if response.status_code != 200:
@@ -57,13 +108,11 @@ def _ocr_with_ocr_space(base64_image: str) -> str | None:
         
         result = response.json()
         
-        # Проверяем на ошибки обработки
         if result.get('IsErroredOnProcessing'):
             error_msg = result.get('ErrorMessage', ['Unknown'])[0]
             log_event("ocr_processing_error", 0, {"error": error_msg}, "error")
             return None
         
-        # Извлекаем текст
         parsed_results = result.get('ParsedResults', [])
         if not parsed_results:
             log_event("ocr_no_results", 0, {}, "warning")
@@ -91,7 +140,7 @@ def _parse_with_deepseek(ocr_text: str) -> dict | None:
         log_event("deepseek_no_key", 0, {}, "error")
         return None
     
-    prompt = f"""Текст распознан с чека:
+    prompt = f"""Текст с чека:
 
 {ocr_text[:2500]}
 
@@ -108,7 +157,7 @@ def _parse_with_deepseek(ocr_text: str) -> dict | None:
 Правила:
 - items: только товары с ценами
 - amount: число без валюты
-- Игнорируй ИТОГО/СДАЧА/СКИДКА
+- Игнорируй ИТОГО/СДАЧА
 - Если нет товаров: {{"error": "no_items"}}
 
 Только JSON!"""
@@ -124,7 +173,7 @@ def _parse_with_deepseek(ocr_text: str) -> dict | None:
         payload = {
             "model": "deepseek-chat",
             "messages": [
-                {"role": "system", "content": "Парсер чеков. Только JSON в ответе."},
+                {"role": "system", "content": "Парсер чеков. Только JSON."},
                 {"role": "user", "content": prompt}
             ],
             "temperature": 0.0,
@@ -137,18 +186,16 @@ def _parse_with_deepseek(ocr_text: str) -> dict | None:
         
         if response.status_code != 200:
             log_event("deepseek_error", 0, {
-                "code": response.status_code,
-                "body": response.text[:200]
+                "code": response.status_code
             }, "error")
             return None
         
         result = response.json()
         content = result["choices"][0]["message"]["content"]
         
-        # Извлекаем JSON
         json_match = re.search(r'\{[\s\S]*\}', content)
         if not json_match:
-            log_event("deepseek_no_json", 0, {"content": content[:200]}, "error")
+            log_event("deepseek_no_json", 0, {}, "error")
             return None
         
         data = json.loads(json_match.group(0))
@@ -163,7 +210,7 @@ def _parse_with_deepseek(ocr_text: str) -> dict | None:
 
 
 def _categorize(name: str, store: str = "") -> str:
-    """Определяет категорию товара"""
+    """Определяет категорию"""
     text = (name + " " + store).lower()
     
     for cat, keywords in EXPENSE_CATEGORIES.items():
@@ -212,7 +259,7 @@ class handler(BaseHTTPRequestHandler):
             send_error(
                 self,
                 500,
-                "Не удалось распознать товары.\n\nПопробуй сфотографировать ещё раз или введи вручную."
+                "Не удалось распознать товары.\n\nПопробуй ещё раз или введи вручную."
             )
             return
         
@@ -221,7 +268,7 @@ class handler(BaseHTTPRequestHandler):
         store = data.get("store", "")
         
         if len(items) == 0:
-            send_error(self, 400, "Товары не найдены на чеке")
+            send_error(self, 400, "Товары не найдены")
             return
         
         supabase = get_supabase_for_user(user_id)
@@ -259,10 +306,10 @@ class handler(BaseHTTPRequestHandler):
                 log_event("save_error", user_id, {"error": str(e)}, "error")
         
         if len(saved) == 0:
-            send_error(self, 500, "Не удалось сохранить товары")
+            send_error(self, 500, "Не удалось сохранить")
             return
         
-        log_event("receipt_success", user_id, {"saved": len(saved), "total": len(items)})
+        log_event("receipt_success", user_id, {"saved": len(saved)})
         
         send_ok(self, {
             "items": saved,
