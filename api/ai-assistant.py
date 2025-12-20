@@ -11,10 +11,37 @@ import os
 from datetime import datetime, timedelta
 import requests
 
-from api.auth import require_user_id
 from api.db import get_supabase_for_user
 from api.utils import read_json, send_ok, send_error
 from api.logger import log_event
+
+
+def parse_init_data(init_data: str) -> int | None:
+    """Парсит user_id из initData"""
+    try:
+        # Формат: user={"id":123,...} или user=123
+        if not init_data:
+            return None
+        
+        # Убираем префикс "user="
+        if init_data.startswith('user='):
+            user_data = init_data[5:]
+            
+            # Пробуем распарсить как JSON
+            try:
+                user_obj = json.loads(user_data)
+                return user_obj.get('id')
+            except:
+                # Если не JSON, то просто число
+                try:
+                    return int(user_data)
+                except:
+                    return None
+        
+        return None
+    except Exception as e:
+        print(f"Parse init_data error: {e}")
+        return None
 
 
 def _get_user_financial_context(user_id: int) -> dict:
@@ -69,7 +96,7 @@ def _get_user_financial_context(user_id: int) -> dict:
                 for s in subscriptions
             ],
             "transactions_count": len(transactions),
-            "daily_average": round(total_expense / 30, 2)
+            "daily_average": round(total_expense / 30, 2) if total_expense > 0 else 0
         }
         
         return context
@@ -85,7 +112,7 @@ def _create_system_prompt(context: dict) -> str:
     """
     
     top_cats = "\n".join([
-        f"  - {c['category']}: {c['amount']} ₽"
+        f"  - {c['category']}: {c['amount']:.2f} ₽"
         for c in context.get('top_categories', [])
     ])
     
@@ -98,10 +125,10 @@ def _create_system_prompt(context: dict) -> str:
 
 📊 ФИНАНСОВАЯ СИТУАЦИЯ ПОЛЬЗОВАТЕЛЯ ({context.get('period', 'N/A')}):
 
-Баланс: {context.get('balance', 0)} ₽
-Доход: {context.get('total_income', 0)} ₽
-Расход: {context.get('total_expense', 0)} ₽
-Средние траты/день: {context.get('daily_average', 0)} ₽
+Баланс: {context.get('balance', 0):.2f} ₽
+Доход: {context.get('total_income', 0):.2f} ₽
+Расход: {context.get('total_expense', 0):.2f} ₽
+Средние траты/день: {context.get('daily_average', 0):.2f} ₽
 
 Топ категории расходов:
 {top_cats or '  (нет данных)'}
@@ -196,8 +223,12 @@ class handler(BaseHTTPRequestHandler):
         POST /api/ai-assistant
         Body: { "message": "Как мне сэкономить?" }
         """
-        user_id = require_user_id(self)
+        # Получаем user_id из заголовка
+        init_data = self.headers.get('X-Tg-Init-Data', '')
+        user_id = parse_init_data(init_data)
+        
         if user_id is None:
+            send_error(self, 401, "Unauthorized")
             return
         
         body = read_json(self)
