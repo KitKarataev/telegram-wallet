@@ -6,7 +6,7 @@ import json
 import os
 import requests
 import re
-import time
+import base64
 
 from api.auth import require_user_id
 from api.db import get_supabase_for_user
@@ -18,61 +18,65 @@ EXPENSE_CATEGORIES = {
     "Продукты": ["пятерочка", "перекресток", "магнит", "ашан", "лента", "вкусвилл", "lidl", "aldi", "carrefour", "mercadona"],
     "Кафе и Рестораны": ["кофе", "cafe", "restaurant", "burger", "pizza", "sushi"],
     "Транспорт": ["uber", "bolt", "taxi", "metro"],
-    "Развлечения": ["netflix", "spotify", "steam", "cinema"],
 }
 
 
-def _ocr_with_api(base64_image: str) -> str | None:
+def _ocr_with_ocr_space(base64_image: str) -> str | None:
     """
-    OCR через api.api-ninjas.com (бесплатный, надёжный)
+    OCR.space API - проверенный рабочий вариант
     """
     try:
-        url = "https://api.api-ninjas.com/v1/imagetotext"
+        url = "https://api.ocr.space/parse/image"
         
-        # Бесплатный API key от API Ninjas
-        api_key = os.environ.get("API_NINJAS_KEY", "").strip()
-        
-        # Если нет ключа, используем публичный (ограниченный)
-        if not api_key:
-            api_key = "YOUR_API_KEY_HERE"  # Нужен реальный ключ
-        
-        headers = {
-            "X-Api-Key": api_key,
-            "Content-Type": "application/json"
-        }
-        
-        # API Ninjas принимает base64 напрямую
+        # Формируем данные как form-data (не JSON!)
         payload = {
-            "image": base64_image
+            'base64Image': f'data:image/jpeg;base64,{base64_image}',
+            'language': 'rus',
+            'isOverlayRequired': 'false',
+            'detectOrientation': 'true',
+            'scale': 'true',
+            'OCREngine': '2',
         }
         
-        log_event("ocr_api_request", 0, {"service": "api-ninjas"})
+        # Используем бесплатный API key
+        headers = {
+            'apikey': 'K87899142388957',
+        }
         
-        response = requests.post(url, headers=headers, json=payload, timeout=30)
+        log_event("ocr_request", 0, {"service": "ocr.space"})
         
-        if response.status_code == 401:
-            log_event("ocr_api_unauthorized", 0, {}, "error")
-            return None
+        # ВАЖНО: используем data (form-data), а не json!
+        response = requests.post(url, data=payload, headers=headers, timeout=30)
         
         if response.status_code != 200:
-            log_event("ocr_api_error", 0, {"code": response.status_code}, "error")
+            log_event("ocr_http_error", 0, {
+                "code": response.status_code,
+                "body": response.text[:200]
+            }, "error")
             return None
         
         result = response.json()
         
-        # API Ninjas возвращает массив распознанных текстовых блоков
-        if not isinstance(result, list) or len(result) == 0:
-            log_event("ocr_no_text", 0, {}, "warning")
+        # Проверяем на ошибки обработки
+        if result.get('IsErroredOnProcessing'):
+            error_msg = result.get('ErrorMessage', ['Unknown'])[0]
+            log_event("ocr_processing_error", 0, {"error": error_msg}, "error")
             return None
         
-        # Собираем весь текст
-        text = " ".join([item.get("text", "") for item in result])
+        # Извлекаем текст
+        parsed_results = result.get('ParsedResults', [])
+        if not parsed_results:
+            log_event("ocr_no_results", 0, {}, "warning")
+            return None
+        
+        text = parsed_results[0].get('ParsedText', '').strip()
         
         if len(text) < 10:
+            log_event("ocr_text_too_short", 0, {"length": len(text)}, "warning")
             return None
         
         log_event("ocr_success", 0, {"length": len(text)})
-        return text.strip()
+        return text
         
     except Exception as e:
         log_event("ocr_exception", 0, {"error": str(e)}, "error")
@@ -84,32 +88,30 @@ def _parse_with_deepseek(ocr_text: str) -> dict | None:
     
     api_key = os.environ.get("DEEPSEEK_API_KEY", "").strip()
     if not api_key:
+        log_event("deepseek_no_key", 0, {}, "error")
         return None
     
-    prompt = f"""Текст с чека (распознан OCR):
+    prompt = f"""Текст распознан с чека:
 
 {ocr_text[:2500]}
 
-Твоя задача: извлечь товары и цены.
+Извлеки товары и цены. Верни JSON:
 
-Верни JSON:
 {{
   "items": [
-    {{"name": "Хлеб белый", "amount": 45.50}},
-    {{"name": "Молоко 3.2%", "amount": 89.00}}
+    {{"name": "Хлеб", "amount": 45.50}},
+    {{"name": "Молоко", "amount": 89.00}}
   ],
-  "store": "Пятёрочка",
-  "total": 134.50
+  "store": "Магазин"
 }}
 
 Правила:
-1. items - только товары с ценами (не итоги, не скидки)
-2. amount - число без валюты
-3. Если не можешь распознать товары: {{"error": "no_items"}}
-4. store - название магазина из первых строк
-5. Игнорируй "ИТОГО", "СДАЧА", "ОПЛАЧЕНО"
+- items: только товары с ценами
+- amount: число без валюты
+- Игнорируй ИТОГО/СДАЧА/СКИДКА
+- Если нет товаров: {{"error": "no_items"}}
 
-Будь точным. Только JSON в ответе."""
+Только JSON!"""
 
     try:
         url = "https://api.deepseek.com/v1/chat/completions"
@@ -122,7 +124,7 @@ def _parse_with_deepseek(ocr_text: str) -> dict | None:
         payload = {
             "model": "deepseek-chat",
             "messages": [
-                {"role": "system", "content": "Ты эксперт по парсингу чеков. Отвечай только JSON."},
+                {"role": "system", "content": "Парсер чеков. Только JSON в ответе."},
                 {"role": "user", "content": prompt}
             ],
             "temperature": 0.0,
@@ -134,15 +136,19 @@ def _parse_with_deepseek(ocr_text: str) -> dict | None:
         response = requests.post(url, headers=headers, json=payload, timeout=30)
         
         if response.status_code != 200:
-            log_event("deepseek_error", 0, {"code": response.status_code}, "error")
+            log_event("deepseek_error", 0, {
+                "code": response.status_code,
+                "body": response.text[:200]
+            }, "error")
             return None
         
         result = response.json()
         content = result["choices"][0]["message"]["content"]
         
-        # Извлекаем JSON из ответа
+        # Извлекаем JSON
         json_match = re.search(r'\{[\s\S]*\}', content)
         if not json_match:
+            log_event("deepseek_no_json", 0, {"content": content[:200]}, "error")
             return None
         
         data = json.loads(json_match.group(0))
@@ -186,23 +192,19 @@ class handler(BaseHTTPRequestHandler):
         
         log_event("receipt_start", user_id, {})
         
-        # Шаг 1: OCR
-        ocr_text = _ocr_with_api(img_b64)
+        # OCR
+        ocr_text = _ocr_with_ocr_space(img_b64)
         
         if not ocr_text:
             log_event("receipt_ocr_fail", user_id, {}, "error")
             send_error(
                 self, 
                 500, 
-                "Не удалось распознать текст на чеке.\n\n" + 
-                "Попробуй:\n" +
-                "• Лучше освещение\n" +
-                "• Ближе к чеку\n" +
-                "• Или введи товары вручную 😊"
+                "Не удалось распознать чек.\n\nПопробуй:\n• Лучше освещение\n• Чёткое фото\n• Или введи вручную 😊"
             )
             return
         
-        # Шаг 2: Парсинг с DeepSeek
+        # Парсинг
         data = _parse_with_deepseek(ocr_text)
         
         if not data or data.get("error"):
@@ -210,16 +212,16 @@ class handler(BaseHTTPRequestHandler):
             send_error(
                 self,
                 500,
-                "Не удалось распознать товары на чеке.\n\nПопробуй ещё раз или введи вручную."
+                "Не удалось распознать товары.\n\nПопробуй сфотографировать ещё раз или введи вручную."
             )
             return
         
-        # Шаг 3: Сохранение
+        # Сохранение
         items = data.get("items", [])
         store = data.get("store", "")
         
         if len(items) == 0:
-            send_error(self, 400, "На чеке не найдено товаров")
+            send_error(self, 400, "Товары не найдены на чеке")
             return
         
         supabase = get_supabase_for_user(user_id)
@@ -254,7 +256,7 @@ class handler(BaseHTTPRequestHandler):
                 saved.append({"name": name, "amount": amount, "category": cat})
                 
             except Exception as e:
-                log_event("save_item_error", user_id, {"error": str(e)}, "error")
+                log_event("save_error", user_id, {"error": str(e)}, "error")
         
         if len(saved) == 0:
             send_error(self, 500, "Не удалось сохранить товары")
