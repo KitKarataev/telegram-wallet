@@ -58,7 +58,56 @@ async function tgFetch(url, options = {}) {
     return parsed;
 }
 
-// ========== НОВАЯ ФУНКЦИЯ: РАБОТА С КАМЕРОЙ ==========
+// ========== НОВАЯ ФУНКЦИЯ: СЖАТИЕ ИЗОБРАЖЕНИЯ ==========
+async function compressImage(file, maxWidth = 1920, quality = 0.85) {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        
+        reader.onload = (e) => {
+            const img = new Image();
+            
+            img.onload = () => {
+                // Вычисляем новые размеры (сохраняя пропорции)
+                let width = img.width;
+                let height = img.height;
+                
+                if (width > maxWidth) {
+                    height = (height * maxWidth) / width;
+                    width = maxWidth;
+                }
+                
+                // Создаём canvas для сжатия
+                const canvas = document.createElement('canvas');
+                canvas.width = width;
+                canvas.height = height;
+                
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(img, 0, 0, width, height);
+                
+                // Конвертируем в JPEG с указанным качеством
+                canvas.toBlob(
+                    (blob) => {
+                        if (!blob) {
+                            reject(new Error('Failed to compress image'));
+                            return;
+                        }
+                        resolve(blob);
+                    },
+                    'image/jpeg',
+                    quality
+                );
+            };
+            
+            img.onerror = () => reject(new Error('Failed to load image'));
+            img.src = e.target.result;
+        };
+        
+        reader.onerror = () => reject(new Error('Failed to read file'));
+        reader.readAsDataURL(file);
+    });
+}
+
+// ========== ФУНКЦИЯ: РАБОТА С КАМЕРОЙ ==========
 function openCamera() {
     tg?.HapticFeedback?.impactOccurred?.('light');
     
@@ -70,13 +119,6 @@ function openCamera() {
 document.getElementById('receipt-input').addEventListener('change', async function(event) {
     const file = event.target.files[0];
     if (!file) return;
-
-    // Проверка размера (макс 5MB)
-    if (file.size > 5 * 1024 * 1024) {
-        tg?.HapticFeedback?.notificationOccurred?.('error');
-        alert('Файл слишком большой. Максимум 5MB.');
-        return;
-    }
 
     // Проверка типа
     if (!file.type.startsWith('image/')) {
@@ -90,12 +132,27 @@ document.getElementById('receipt-input').addEventListener('change', async functi
     // Показываем индикатор загрузки
     const submitBtn = document.getElementById('submit-btn');
     const originalText = submitBtn.innerHTML;
-    submitBtn.innerHTML = '<span class="loading"></span> Обрабатываем чек...';
+    submitBtn.innerHTML = '<span class="loading"></span> Сжимаем фото...';
     submitBtn.disabled = true;
 
     try {
+        // Сжимаем изображение
+        const compressedBlob = await compressImage(file, 1920, 0.85);
+        
+        console.log(`Original size: ${(file.size / 1024 / 1024).toFixed(2)}MB`);
+        console.log(`Compressed size: ${(compressedBlob.size / 1024 / 1024).toFixed(2)}MB`);
+        
+        // Проверяем размер после сжатия
+        if (compressedBlob.size > 4 * 1024 * 1024) { // 4MB лимит
+            tg?.HapticFeedback?.notificationOccurred?.('error');
+            alert('Даже после сжатия файл слишком большой. Попробуй сфотографировать чек ближе.');
+            return;
+        }
+        
+        submitBtn.innerHTML = '<span class="loading"></span> Обрабатываем чек...';
+        
         // Конвертируем в base64
-        const base64 = await fileToBase64(file);
+        const base64 = await blobToBase64(compressedBlob);
         
         // Отправляем на сервер
         const result = await tgFetch('/api/process-receipt', {
@@ -130,8 +187,8 @@ document.getElementById('receipt-input').addEventListener('change', async functi
     }
 });
 
-// Вспомогательная функция для конвертации файла в base64
-function fileToBase64(file) {
+// Вспомогательная функция для конвертации Blob в base64
+function blobToBase64(blob) {
     return new Promise((resolve, reject) => {
         const reader = new FileReader();
         reader.onload = () => {
@@ -140,7 +197,7 @@ function fileToBase64(file) {
             resolve(base64);
         };
         reader.onerror = reject;
-        reader.readAsDataURL(file);
+        reader.readAsDataURL(blob);
     });
 }
 
