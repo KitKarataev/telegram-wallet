@@ -1,4 +1,4 @@
-# api/bot.py - исправленная аутентификация
+# api/bot.py - автоматический AI режим
 from http.server import BaseHTTPRequestHandler
 import os
 import json
@@ -10,21 +10,16 @@ TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
 API_BASE_URL = os.environ.get("API_BASE_URL", "")
 WEBAPP_URL = f"{API_BASE_URL}/index.html"
 
-# AI режим
-AI_WAITING_USERS = {}
-
-# Категории
+# Категории для распознавания расходов
 EXPENSE_CATEGORIES = {
-    "Продукты": ["пятерочка", "перекресток", "магнит", "ашан", "лента", "вкусвилл", "lidl", "aldi", "carrefour", "mercadona"],
-    "Кафе и Рестораны": ["кофе", "cafe", "restaurant", "burger", "pizza", "sushi"],
+    "Продукты": ["пятерочка", "перекресток", "магнит", "ашан", "лента", "вкусвилл", "lidl", "aldi"],
+    "Кафе": ["кофе", "cafe", "restaurant", "burger", "pizza"],
     "Транспорт": ["uber", "bolt", "taxi", "metro"],
 }
 
 
 def create_init_data(user_id: int) -> str:
-    """Создаёт правильный initData для API"""
-    # Минимальный формат который API сможет распарсить
-    import json
+    """Создаёт initData для API"""
     user_data = json.dumps({"id": user_id, "first_name": "User", "is_bot": False})
     return f"user={user_data}"
 
@@ -32,19 +27,13 @@ def create_init_data(user_id: int) -> str:
 def send_message(chat_id: int, text: str, reply_markup=None):
     """Отправляет сообщение"""
     try:
-        payload = {
-            "chat_id": chat_id,
-            "text": text,
-            "parse_mode": "Markdown"
-        }
-        
+        payload = {"chat_id": chat_id, "text": text, "parse_mode": "Markdown"}
         if reply_markup:
             payload["reply_markup"] = reply_markup
         
         response = requests.post(
             f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage",
-            json=payload,
-            timeout=10
+            json=payload, timeout=10
         )
         return response.status_code == 200
     except Exception as e:
@@ -53,12 +42,11 @@ def send_message(chat_id: int, text: str, reply_markup=None):
 
 
 def send_chat_action(chat_id: int, action: str = "typing"):
-    """Показывает индикатор печати"""
+    """Индикатор печати"""
     try:
         requests.post(
             f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendChatAction",
-            json={"chat_id": chat_id, "action": action},
-            timeout=5
+            json={"chat_id": chat_id, "action": action}, timeout=5
         )
     except:
         pass
@@ -66,9 +54,7 @@ def send_chat_action(chat_id: int, action: str = "typing"):
 
 def parse_expense_text(text: str) -> dict | None:
     """Парсит: 500 Кофе"""
-    text = text.strip()
-    parts = text.split(maxsplit=1)
-    
+    parts = text.strip().split(maxsplit=1)
     if len(parts) < 2:
         return None
     
@@ -89,34 +75,51 @@ def parse_expense_text(text: str) -> dict | None:
         return None
     
     category = "Разное"
-    desc_lower = description.lower()
-    
     for cat, keywords in EXPENSE_CATEGORIES.items():
-        if any(kw in desc_lower for kw in keywords):
+        if any(kw in description.lower() for kw in keywords):
             category = cat
             break
     
     return {"amount": amount, "description": description, "category": category}
 
 
+def is_expense_format(text: str) -> bool:
+    """Проверяет похоже ли на формат расхода"""
+    # Примеры: "500 Кофе", "Такси 300", "+ 50000 Зарплата"
+    parts = text.strip().split(maxsplit=1)
+    if len(parts) < 2:
+        return False
+    
+    # Проверяем есть ли число в первом или втором слове
+    try:
+        float(parts[0].replace(',', '.').replace('+', ''))
+        return True
+    except ValueError:
+        try:
+            float(parts[1].replace(',', '.'))
+            return True
+        except ValueError:
+            return False
+
+
 def handle_start(chat_id: int):
     """Команда /start"""
     keyboard = {
-        "keyboard": [[{
-            "text": "💰 Открыть приложение",
-            "web_app": {"url": WEBAPP_URL}
-        }]],
+        "keyboard": [[{"text": "💰 Открыть приложение", "web_app": {"url": WEBAPP_URL}}]],
         "resize_keyboard": True
     }
     
     send_message(
         chat_id,
-        "👋 *Привет! Я твой финансовый помощник.*\n\n"
-        "📱 Нажми кнопку ниже\n"
-        "💬 Или используй команды:\n\n"
-        "/help - помощь\n"
-        "/ai - 🤖 AI ассистент\n"
-        "/stats - статистика",
+        "👋 *Привет! Я твой AI финансовый помощник.*\n\n"
+        "📱 Нажми кнопку чтобы открыть приложение\n\n"
+        "💬 *Что я умею:*\n"
+        "• Добавлять расходы: `500 Кофе`\n"
+        "• Добавлять доходы: `+ 50000 Зарплата`\n"
+        "• Отвечать на вопросы о финансах\n"
+        "• Давать советы по экономии\n"
+        "• Анализировать твои траты\n\n"
+        "_Просто пиши мне что угодно!_ 🤖",
         keyboard
     )
 
@@ -125,19 +128,20 @@ def handle_help(chat_id: int):
     """Команда /help"""
     send_message(
         chat_id,
-        "🤖 *Доступные команды:*\n\n"
-        "📊 *Основные:*\n"
-        "/start - главное меню\n"
-        "/stats - статистика\n"
-        "/ai - AI помощник\n"
-        "/cancel - выход из AI\n\n"
-        "💬 *Быстрое добавление:*\n"
-        "`500 Кофе` - расход\n"
-        "`+ 50000 Зарплата` - доход\n\n"
-        "🤖 *Примеры для AI:*\n"
+        "🤖 *Я твой AI финансовый ассистент!*\n\n"
+        "📊 *Добавление операций:*\n"
+        "• `500 Кофе` - добавит расход\n"
+        "• `+ 50000 Зарплата` - добавит доход\n\n"
+        "💡 *Вопросы AI:*\n"
         "• Где я больше всего трачу?\n"
         "• Как сэкономить 5000₽?\n"
-        "• Составь бюджет на месяц"
+        "• Составь бюджет на месяц\n"
+        "• Стоит ли покупать iPhone?\n"
+        "• Сколько стоит час моей работы?\n\n"
+        "📱 *Команды:*\n"
+        "/start - главное меню\n"
+        "/stats - статистика\n\n"
+        "_Просто пиши что хочешь - я пойму!_ 😊"
     )
 
 
@@ -145,14 +149,10 @@ def handle_stats(chat_id: int, user_id: int):
     """Команда /stats"""
     try:
         init_data = create_init_data(user_id)
-        
         response = requests.get(
             f"{API_BASE_URL}/api/stats?period=month",
-            headers={"X-Tg-Init-Data": init_data},
-            timeout=10
+            headers={"X-Tg-Init-Data": init_data}, timeout=10
         )
-        
-        print(f"Stats response: {response.status_code}")
         
         if response.status_code == 200:
             data = response.json().get('data', {})
@@ -168,89 +168,24 @@ def handle_stats(chat_id: int, user_id: int):
                 f"📉 Расход: `-{expense} ₽`"
             )
         else:
-            send_message(chat_id, f"❌ Ошибка {response.status_code}: не удалось загрузить статистику")
+            send_message(chat_id, "❌ Не удалось загрузить статистику")
     except Exception as e:
         print(f"Stats error: {e}")
-        send_message(chat_id, "❌ Ошибка загрузки")
+        send_message(chat_id, "❌ Ошибка")
 
 
-def handle_ai_start(chat_id: int, user_id: int):
-    """Команда /ai"""
-    AI_WAITING_USERS[user_id] = True
-    send_message(
-        chat_id,
-        "🤖 *AI Финансовый Ассистент активирован!*\n\n"
-        "Задай вопрос о финансах:\n\n"
-        "💡 Примеры:\n"
-        "• Где я больше всего трачу?\n"
-        "• Как сэкономить 5000 рублей?\n"
-        "• Составь бюджет на месяц\n"
-        "• Хватит ли денег до конца месяца?\n\n"
-        "_Выход: /cancel_"
-    )
-
-
-def handle_ai_cancel(chat_id: int, user_id: int):
-    """Команда /cancel"""
-    if user_id in AI_WAITING_USERS:
-        del AI_WAITING_USERS[user_id]
-        send_message(chat_id, "✅ AI ассистент деактивирован")
-    else:
-        send_message(chat_id, "AI не был активен. Используй /ai для запуска")
-
-
-def handle_ai_message(chat_id: int, user_id: int, text: str):
-    """Обработка сообщения в AI режиме"""
-    send_chat_action(chat_id, "typing")
-    
-    try:
-        init_data = create_init_data(user_id)
-        
-        response = requests.post(
-            f"{API_BASE_URL}/api/ai-assistant",
-            json={"message": text},
-            headers={"X-Tg-Init-Data": init_data},
-            timeout=30
-        )
-        
-        print(f"AI response: {response.status_code}")
-        
-        if response.status_code == 200:
-            data = response.json().get('data', {})
-            ai_message = data.get('message', 'Не удалось получить ответ')
-            send_message(chat_id, f"🤖 *AI Ассистент:*\n\n{ai_message}")
-        else:
-            send_message(chat_id, f"❌ AI ошибка {response.status_code}. Попробуй позже или /cancel")
-    except Exception as e:
-        print(f"AI error: {e}")
-        send_message(chat_id, "❌ Не удалось связаться с AI")
-
-
-def handle_expense_text(chat_id: int, user_id: int, text: str):
-    """Обработка обычного текста (расход/доход)"""
+def handle_expense(chat_id: int, user_id: int, text: str):
+    """Добавление расхода/дохода"""
     is_income = text.startswith('+')
     if is_income:
         text = text[1:].strip()
     
     parsed = parse_expense_text(text)
-    
     if not parsed:
-        send_message(
-            chat_id,
-            "❓ Не понял команду.\n\n"
-            "Попробуй так:\n"
-            "• `500 Кофе` - расход\n"
-            "• `+ 50000 Зарплата` - доход\n\n"
-            "Или используй:\n"
-            "/help - помощь\n"
-            "/ai - AI ассистент"
-        )
-        return
+        return False  # Не получилось распарсить
     
-    # Добавляем операцию
     try:
         init_data = create_init_data(user_id)
-        
         response = requests.post(
             f"{API_BASE_URL}/api/index",
             headers={"X-Tg-Init-Data": init_data},
@@ -262,24 +197,47 @@ def handle_expense_text(chat_id: int, user_id: int, text: str):
             timeout=10
         )
         
-        print(f"Add expense response: {response.status_code}")
-        
         if response.status_code == 200:
             emoji = "📈" if is_income else "💸"
             sign = "+" if is_income else "-"
             
             send_message(
                 chat_id,
-                f"✅ Добавлено:\n"
-                f"{emoji} {sign}{parsed['amount']} ₽\n"
-                f"📝 {parsed['description']}\n"
-                f"📂 {parsed['category']}"
+                f"✅ Добавлено:\n{emoji} {sign}{parsed['amount']} ₽\n"
+                f"📝 {parsed['description']}\n📂 {parsed['category']}"
             )
+            return True
         else:
-            send_message(chat_id, f"❌ Ошибка {response.status_code}: не удалось добавить")
+            send_message(chat_id, "❌ Не удалось добавить")
+            return True
     except Exception as e:
         print(f"Add error: {e}")
-        send_message(chat_id, "❌ Ошибка при добавлении")
+        send_message(chat_id, "❌ Ошибка")
+        return True
+
+
+def handle_ai_message(chat_id: int, user_id: int, text: str):
+    """Обработка через AI"""
+    send_chat_action(chat_id, "typing")
+    
+    try:
+        init_data = create_init_data(user_id)
+        response = requests.post(
+            f"{API_BASE_URL}/api/ai-assistant",
+            json={"message": text},
+            headers={"X-Tg-Init-Data": init_data},
+            timeout=30
+        )
+        
+        if response.status_code == 200:
+            data = response.json().get('data', {})
+            ai_message = data.get('message', 'Не удалось получить ответ')
+            send_message(chat_id, f"🤖 {ai_message}")
+        else:
+            send_message(chat_id, "❌ AI временно недоступен")
+    except Exception as e:
+        print(f"AI error: {e}")
+        send_message(chat_id, "❌ Не удалось связаться с AI")
 
 
 class handler(BaseHTTPRequestHandler):
@@ -310,18 +268,15 @@ class handler(BaseHTTPRequestHandler):
                 handle_help(chat_id)
             elif text == '/stats':
                 handle_stats(chat_id, user_id)
-            elif text == '/ai':
-                handle_ai_start(chat_id, user_id)
-            elif text == '/cancel':
-                handle_ai_cancel(chat_id, user_id)
             
-            # AI режим
-            elif user_id in AI_WAITING_USERS:
-                handle_ai_message(chat_id, user_id, text)
+            # Проверяем формат расхода/дохода
+            elif is_expense_format(text):
+                # Это похоже на расход - добавляем
+                handle_expense(chat_id, user_id, text)
             
-            # Обычный режим
+            # Всё остальное - отправляем в AI
             else:
-                handle_expense_text(chat_id, user_id, text)
+                handle_ai_message(chat_id, user_id, text)
             
             self.send_response(200)
             self.send_header('Content-type', 'application/json')
@@ -341,4 +296,4 @@ class handler(BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header('Content-type', 'text/plain')
         self.end_headers()
-        self.wfile.write(b"Bot webhook is running - Full version with AI (Fixed Auth)")
+        self.wfile.write(b"Bot webhook - Auto AI mode")
