@@ -1,2 +1,4 @@
 supabase
 requests
+pytesseract
+Pillow
