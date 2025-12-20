@@ -1,4 +1,4 @@
-# api/bot.py - финальная версия с AI
+# api/bot.py - исправленная аутентификация
 from http.server import BaseHTTPRequestHandler
 import os
 import json
@@ -19,6 +19,14 @@ EXPENSE_CATEGORIES = {
     "Кафе и Рестораны": ["кофе", "cafe", "restaurant", "burger", "pizza", "sushi"],
     "Транспорт": ["uber", "bolt", "taxi", "metro"],
 }
+
+
+def create_init_data(user_id: int) -> str:
+    """Создаёт правильный initData для API"""
+    # Минимальный формат который API сможет распарсить
+    import json
+    user_data = json.dumps({"id": user_id, "first_name": "User", "is_bot": False})
+    return f"user={user_data}"
 
 
 def send_message(chat_id: int, text: str, reply_markup=None):
@@ -136,11 +144,15 @@ def handle_help(chat_id: int):
 def handle_stats(chat_id: int, user_id: int):
     """Команда /stats"""
     try:
+        init_data = create_init_data(user_id)
+        
         response = requests.get(
             f"{API_BASE_URL}/api/stats?period=month",
-            headers={"X-Tg-Init-Data": f"user={user_id}"},
+            headers={"X-Tg-Init-Data": init_data},
             timeout=10
         )
+        
+        print(f"Stats response: {response.status_code}")
         
         if response.status_code == 200:
             data = response.json().get('data', {})
@@ -156,7 +168,7 @@ def handle_stats(chat_id: int, user_id: int):
                 f"📉 Расход: `-{expense} ₽`"
             )
         else:
-            send_message(chat_id, "❌ Не удалось загрузить статистику")
+            send_message(chat_id, f"❌ Ошибка {response.status_code}: не удалось загрузить статистику")
     except Exception as e:
         print(f"Stats error: {e}")
         send_message(chat_id, "❌ Ошибка загрузки")
@@ -192,19 +204,23 @@ def handle_ai_message(chat_id: int, user_id: int, text: str):
     send_chat_action(chat_id, "typing")
     
     try:
+        init_data = create_init_data(user_id)
+        
         response = requests.post(
             f"{API_BASE_URL}/api/ai-assistant",
             json={"message": text},
-            headers={"X-Tg-Init-Data": f"user={user_id}"},
+            headers={"X-Tg-Init-Data": init_data},
             timeout=30
         )
+        
+        print(f"AI response: {response.status_code}")
         
         if response.status_code == 200:
             data = response.json().get('data', {})
             ai_message = data.get('message', 'Не удалось получить ответ')
             send_message(chat_id, f"🤖 *AI Ассистент:*\n\n{ai_message}")
         else:
-            send_message(chat_id, "❌ AI временно недоступен. Попробуй позже или напиши /cancel")
+            send_message(chat_id, f"❌ AI ошибка {response.status_code}. Попробуй позже или /cancel")
     except Exception as e:
         print(f"AI error: {e}")
         send_message(chat_id, "❌ Не удалось связаться с AI")
@@ -233,9 +249,11 @@ def handle_expense_text(chat_id: int, user_id: int, text: str):
     
     # Добавляем операцию
     try:
+        init_data = create_init_data(user_id)
+        
         response = requests.post(
             f"{API_BASE_URL}/api/index",
-            headers={"X-Tg-Init-Data": f"user={user_id}"},
+            headers={"X-Tg-Init-Data": init_data},
             json={
                 "text": f"{parsed['amount']} {parsed['description']}",
                 "type": "income" if is_income else "expense",
@@ -243,6 +261,8 @@ def handle_expense_text(chat_id: int, user_id: int, text: str):
             },
             timeout=10
         )
+        
+        print(f"Add expense response: {response.status_code}")
         
         if response.status_code == 200:
             emoji = "📈" if is_income else "💸"
@@ -256,7 +276,7 @@ def handle_expense_text(chat_id: int, user_id: int, text: str):
                 f"📂 {parsed['category']}"
             )
         else:
-            send_message(chat_id, "❌ Не удалось добавить операцию")
+            send_message(chat_id, f"❌ Ошибка {response.status_code}: не удалось добавить")
     except Exception as e:
         print(f"Add error: {e}")
         send_message(chat_id, "❌ Ошибка при добавлении")
@@ -321,4 +341,4 @@ class handler(BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header('Content-type', 'text/plain')
         self.end_headers()
-        self.wfile.write(b"Bot webhook is running - Full version with AI")
+        self.wfile.write(b"Bot webhook is running - Full version with AI (Fixed Auth)")
